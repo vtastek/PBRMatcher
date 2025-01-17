@@ -1,7 +1,12 @@
 import os
 import json
+import tkinter as tk
+import io
+import requests
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
+from tkinter import messagebox
 from PIL import Image, ImageTk
+
 
 # Initialize or load JSON database
 DB_FILE = "db.json"
@@ -20,10 +25,27 @@ def save_database(db):
 class TextureTagger:
     def __init__(self, root, db):
         self.root = root
+        self.root.title("Morrowind PBR Texture Project")
         self.db = db
         self.texture_paths = self.get_texture_paths()
         self.filtered_texture_paths = self.texture_paths  # For filtering purposes
         self.current_index = self.get_current_index()
+
+
+        self.tag_label = tk.Label(self.root, text="Enter Tag:")
+        self.tag_label.pack(pady=5)
+
+        self.tag_entryThumb = Entry(self.root)
+        self.tag_entryThumb.pack(pady=5)
+
+        self.search_button = tk.Button(self.root, text="Search", command=self.fetch_thumbnails)
+        self.search_button.pack(pady=5)
+
+        self.thumbnail_label = tk.Label(self.root)
+        self.thumbnail_label.pack(pady=20)
+
+        self.all_assets = {}
+
 
         # Set a fixed window size
         self.root.geometry("1600x1024")
@@ -305,7 +327,7 @@ class TextureTagger:
 
     def add_tag(self):
         texture_path = self.filtered_texture_paths[self.current_index]
-        new_tag = self.tag_entry.get().strip()
+        new_tag = self.tag_entryThumb.get().strip()
         if new_tag:
             existing_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
             if new_tag not in existing_tags:
@@ -362,6 +384,67 @@ class TextureTagger:
 
         # Update counts
         self.update_counts()
+
+    def fetch_thumbnails(self):
+        tag = self.tag_entryThumb.get().strip()
+        print(f"Tag entered: '{tag}'") # Debugging line
+        if not tag:
+            messagebox.showwarning("Input Error", "Please enter a tag.")
+            return
+
+        url = f"https://api.polyhaven.com/assets?type=textures"
+
+        # Log the request URL
+        print(f"Requesting URL: {url}")
+
+        try:
+            response = requests.get(url)
+
+            # Log the response status code and the first 500 characters of the response content
+            print(f"Response Status Code: {response.status_code}")
+            print(f"Response Content: {response.text[:500]}")  # Show the first 500 chars of the response
+
+            if response.status_code == 200:
+                try:
+                    data = response.json()  # Try to parse JSON
+                    print(f"Response JSON Data: {data}")  # Log the full JSON response
+
+                    self.all_assets = data  # All data is textures
+
+                    # Filter assets by tag
+                    filtered_assets = [
+                        asset for asset in self.all_assets.values() if tag in asset.get("tags", [])
+                    ]
+
+                    if filtered_assets:
+                        # Get the first matching asset's thumbnail URL
+                        first_asset = filtered_assets[0]
+                        thumbnail_url = first_asset.get("thumbnail_url")
+
+                        # Display the thumbnail
+                        self.display_thumbnail(thumbnail_url)
+                    else:
+                        messagebox.showinfo("No Results", f"No textures found for the tag '{tag}'.")
+                except ValueError as e:
+                    messagebox.showerror("JSON Error", f"Failed to parse JSON: {e}")
+            else:
+                messagebox.showerror("Network Error", f"Failed to fetch data. Status code: {response.status_code}")
+                
+        except requests.RequestException as e:
+            messagebox.showerror("Network Error", f"An error occurred: {e}")
+
+    def display_thumbnail(self, url):
+        try:
+            response = requests.get(url)
+            img = Image.open(io.BytesIO(response.content))
+            img = img.resize((256, 256))  # Resize the image for display
+            img_tk = ImageTk.PhotoImage(img)
+
+            self.thumbnail_label.config(image=img_tk)
+            self.thumbnail_label.image = img_tk  # Keep a reference to avoid garbage collection
+        except Exception as e:
+            messagebox.showerror("Image Error", f"Failed to display image: {e}")
+
 
 
 # Main
