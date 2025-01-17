@@ -32,20 +32,31 @@ class TextureTagger:
         self.root.resizable(False, False)
 
         # GUI Elements
-        self.texture_name_label = Label(root, text="", font=("Arial", 14), pady=10)
+        self.texture_name_label = Label(root, text="", font=("Arial", 7), pady=10)
         self.texture_name_label.pack()
 
         self.image_label = Label(root)
         self.image_label.pack()
 
-        self.tags_listbox = Listbox(root, selectmode="multiple")
-        self.tags_listbox.pack()
+        # Create a frame for tags list and buttons
+        self.tags_frame = Frame(root)
+        self.tags_frame.pack()
+
+        self.tags_listbox = Listbox(self.tags_frame, selectmode="multiple", height=5)
+        self.tags_listbox.grid(row=0, column=0, padx=10)
+
+        # Add buttons to the right of the tags list
+        self.buttons_frame = Frame(self.tags_frame)
+        self.buttons_frame.grid(row=0, column=1, padx=10)
+
+        self.add_tag_button = Button(self.buttons_frame, text="Add Tag", command=self.add_tag)
+        self.add_tag_button.pack(pady=5)
+
+        self.remove_tag_button = Button(self.buttons_frame, text="Remove Tag", command=self.remove_tag)
+        self.remove_tag_button.pack(pady=5)
 
         self.tag_entry = Entry(root)
         self.tag_entry.pack()
-
-        self.add_tag_button = Button(root, text="Add Tag", command=self.add_tag)
-        self.add_tag_button.pack()
 
         self.previous_button = Button(root, text="Previous", command=self.previous_texture)
         self.previous_button.pack(side="left", padx=5)
@@ -53,12 +64,13 @@ class TextureTagger:
         self.next_button = Button(root, text="Next", command=self.next_texture)
         self.next_button.pack(side="right", padx=5)
 
-        self.remove_tag_button = Button(root, text="Remove Tag", command=self.remove_tag)
-        self.remove_tag_button.pack()
-
         # Create a frame for togglable buttons
         self.button_frame = Frame(root)
         self.button_frame.pack()
+
+        # Frame for displaying thumbnails
+        self.thumbnail_frame = Frame(root)
+        self.thumbnail_frame.pack(pady=10)
 
         # Add togglable buttons with labels
         self.button_info = {
@@ -133,6 +145,37 @@ class TextureTagger:
         # Display first texture
         self.display_texture()
         self.update_counts()
+
+
+    def display_thumbnails(self):
+        """Display thumbnails of textures with the same tags as the current texture."""
+        # Clear previous thumbnails
+        for widget in self.thumbnail_frame.winfo_children():
+            widget.destroy()
+
+        # Get the tags of the current texture
+        texture_path = self.filtered_texture_paths[self.current_index]
+        tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+
+        # Find matching textures
+        matching_textures = [
+            path for path in self.texture_paths
+            if any(tag in self.db["textures"].get(path, {}).get("tags", []) for tag in tags)
+            and path != texture_path  # Exclude the current texture
+        ]
+
+        # Display thumbnails
+        for path in matching_textures[:5]:  # Limit to 5 thumbnails
+            try:
+                img = Image.open(path)
+                img.thumbnail((100, 100))  # Resize for thumbnails
+                photo = ImageTk.PhotoImage(img)
+                label = Label(self.thumbnail_frame, image=photo)
+                label.image = photo  # Keep a reference to avoid garbage collection
+                label.pack(side="left", padx=5)
+            except Exception as e:
+                print(f"Error loading thumbnail for {path}: {e}")
+
 
     def update_counts(self):
         """Update the counts for each button and label."""
@@ -216,6 +259,10 @@ class TextureTagger:
         stored_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
         for tag in stored_tags:
             self.tags_listbox.insert(END, tag)
+        
+        # Display thumbnails of related textures
+        self.display_thumbnails()
+
 
     def toggle_button(self, tag):
         """Toggle the filter for the selected tag."""
