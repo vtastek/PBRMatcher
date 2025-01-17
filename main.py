@@ -94,21 +94,115 @@ class TextureTagger:
         }
 
         self.buttons = {}
+        self.labels = {}  # Store the labels for each button
         self.active_buttons = set()  # To track active filters
         for key, value in self.button_info.items():
             button = Button(self.button_frame, text=value, command=lambda key=key: self.toggle_button(key))
             button.grid(row=0, column=len(self.buttons), padx=5)
             self.buttons[key] = button
 
+            # Create a label for the button to display counts
+            label = Label(self.button_frame, text="0/0", fg="green")  # Default to green
+            label.grid(row=1, column=len(self.labels), padx=5)
+            self.labels[key] = label
+
+        # Add counts for "Misc" button
+        self.misc_button = Button(self.button_frame, text="Misc", command=self.show_all_textures)
+        self.misc_button.grid(row=0, column=len(self.buttons), padx=5)
+        self.misc_label = Label(self.button_frame, text="0/0", fg="green")  # Default to green
+        self.misc_label.grid(row=1, column=len(self.labels), padx=5)
+
+
         # Misc button for everything else
         self.misc_button = Button(self.button_frame, text="Misc", command=self.show_all_textures)
         self.misc_button.grid(row=0, column=len(self.buttons), padx=5)
 
+        self.all_button = Button(self.button_frame, text="All", command=self.toggle_all_buttons)
+        self.all_button.grid(row=0, column=len(self.buttons) + 1, padx=5)
+        # Add label for All button
+        self.all_label = Label(self.button_frame, text="", fg="green")  # Placeholder for All label
+        self.all_label.grid(row=1, column=len(self.labels) + 1, padx=5)
+
         # Display first texture
         self.display_texture()
+        self.update_counts()
+
+    def update_counts(self):
+        """Update the counts for each button and label."""
+        counts = {key: {"tagged": 0, "untagged": 0} for key in self.button_info}
+
+        # Iterate through all textures and count tagged/untagged for each category
+        for path in self.texture_paths:
+            tags = self.db["textures"].get(path, {}).get("tags", [])
+            for key in self.button_info:
+                if os.path.basename(path).startswith(key):
+                    if tags:
+                        counts[key]["tagged"] += 1
+                    else:
+                        counts[key]["untagged"] += 1
+
+        # Update labels with counts
+        for key, label in self.labels.items():
+            tagged = counts[key]["tagged"]
+            untagged = counts[key]["untagged"]
+            label_text = f"{tagged}/{untagged}"
+
+            # Set label text and color (green if all are tagged, red otherwise)
+            label.config(text=label_text, fg="green" if untagged == 0 else "red")
+
+        # Update the All button counts
+        all_tagged = sum(
+            1 for path in self.texture_paths
+            if self.db["textures"].get(path, {}).get("tags")
+        )
+        all_untagged = len(self.texture_paths) - all_tagged
+
+        # Update label for "All" to reflect the counts
+        self.all_label.config(
+            text=f"{all_tagged}/{len(self.texture_paths)}",
+            fg="green" if all_untagged == 0 else "red",
+        )
+
+        misc_tagged = sum(
+            1 for path in self.texture_paths
+            if not any(os.path.basename(path).startswith(key) for key in self.button_info)
+            and self.db["textures"].get(path, {}).get("tags")
+        )
+        misc_untagged = sum(
+            1 for path in self.texture_paths
+            if not any(os.path.basename(path).startswith(key) for key in self.button_info)
+            and not self.db["textures"].get(path, {}).get("tags")
+        )
+
+        # Update Misc label
+        self.misc_label.config(
+            text=f"{misc_tagged}/{misc_tagged + misc_untagged}",
+            fg="green" if misc_untagged == 0 else "red",
+        )
+
+
+    # New method to toggle all buttons
+    def toggle_all_buttons(self):
+        """Toggle all filters on or off."""
+        if len(self.active_buttons) == len(self.buttons):
+            # If all are active, deactivate them
+            self.active_buttons.clear()
+            for button in self.buttons.values():
+                button.config(bg="lightgray")  # Reset all buttons to inactive color
+        else:
+            # If not all are active, activate all
+            self.active_buttons = set(self.buttons.keys())
+            for button in self.buttons.values():
+                button.config(bg="lightblue")  # Highlight all buttons
+
+        # Apply the filters with the updated active buttons
+        self.apply_filters()
+        self.update_counts()
+
 
     def add_tag_event(self, event=None):
         self.add_tag()  # Trigger the add_tag function on Enter press
+        self.update_counts()
 
     def next_texture_event(self, event=None):
         # Prevent Space key from adding a space to the tag entry
@@ -194,6 +288,7 @@ class TextureTagger:
             self.filtered_texture_paths = self.texture_paths
         self.current_index = 0  # Reset to the first filtered texture
         self.display_texture()
+        self.update_counts()
 
     def show_all_textures(self):
         """Show all textures"""
@@ -216,6 +311,7 @@ class TextureTagger:
 
             # Clear the input field
             self.tag_entry.delete(0, END)
+        self.update_counts()
 
     def remove_tag(self):
         selected_indices = self.tags_listbox.curselection()
@@ -233,6 +329,7 @@ class TextureTagger:
                 existing_tags.remove(selected_tag)
                 self.db["textures"][texture_path]["tags"] = existing_tags
                 save_database(self.db)  # Save updated tags to the database
+        self.update_counts()
 
     def previous_texture(self):
         if self.current_index > 0:
@@ -263,6 +360,7 @@ class TextureTagger:
         # Save updated tags back to the database
         self.db["textures"][texture_path] = {"tags": merged_tags, "status": "tagged"}
         save_database(self.db)
+        self.update_counts()
 
 
 # Main
