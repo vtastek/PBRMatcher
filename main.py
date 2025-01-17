@@ -51,7 +51,7 @@ class TextureTagger:
         self.root.geometry("1600x1024")
 
         # Prevent window resizing
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
 
         # GUI Elements
         self.texture_name_label = Label(root, text="", font=("Arial", 7), pady=10)
@@ -267,7 +267,7 @@ class TextureTagger:
         image = Image.open(texture_path)
 
         # Calculate resized dimensions
-        base_height = 400
+        base_height = 300
         aspect_ratio = image.width / image.height
         new_width = int(base_height * aspect_ratio)
         image = image.resize((new_width, base_height))
