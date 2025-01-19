@@ -409,15 +409,31 @@ class TextureTagger:
 
 
     def add_tag(self):
+        # Get the current texture path
         texture_path = self.filtered_texture_paths[self.current_index]
-        new_tag = self.tag_entryThumb.get().strip()
+        
+        # Retrieve the input from the tag entry widget
+        new_tag = self.tag_entry.get().strip()  # Corrected variable name
         if new_tag:
-            existing_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+            # Safely retrieve existing tags or initialize if missing
+            texture_data = self.db["textures"].setdefault(texture_path, {})
+            existing_tags = texture_data.setdefault("tags", [])
+            
+            # Add the new tag if it doesn't exist
             if new_tag not in existing_tags:
                 existing_tags.append(new_tag)
-                self.db["textures"].setdefault(texture_path, {})["tags"] = existing_tags
+                
+                # Save changes to the database
                 save_database(self.db)
+                
+                # Update the tags displayed in the listbox
+                self.tags_listbox.insert(END, new_tag)
+        else:
+            messagebox.showwarning("Input Error", "Please enter a tag.")
+        
+        # Refresh counts and UI
         self.update_counts()
+
 
     def remove_tag(self):
         texture_path = self.filtered_texture_paths[self.current_index]
