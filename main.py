@@ -177,10 +177,15 @@ class TextureTagger:
         texture_path = self.filtered_texture_paths[self.current_index]
         tags = self.db["textures"].get(texture_path, {}).get("tags", [])
 
+        # Define the headers with the custom User-Agent
+        headers = {
+            'User-Agent': 'pbrmatcher'
+        }
+
         # Fetch textures from Polyhaven API
         url = f"https://api.polyhaven.com/assets?type=textures"
         try:
-            response = requests.get(url)
+            response = requests.get(url, headers)
             if response.status_code == 200:
                 textures = response.json()
 
