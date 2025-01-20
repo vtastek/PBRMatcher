@@ -207,6 +207,9 @@ class TextureTagger:
         if cached_textures:
             for col, texture in enumerate(cached_textures):
                 thumbnail_url = texture.get("thumbnail_url")
+                texture_id = texture.get("id")  # Unique ID for the texture
+                texture_tags = texture.get("tags", [])
+
                 # Check if thumbnail is already in the cache
                 if thumbnail_url in self.thumbnail_data_cache:
                     thumb_photo = self.thumbnail_data_cache[thumbnail_url]
@@ -227,13 +230,34 @@ class TextureTagger:
             thumbnail_url = texture.get("thumbnail_url")
             # Check if thumbnail is already in the cache
             thumb_photo = self.thumbnail_data_cache[thumbnail_url]
+
+            # Create a fixed-size frame for thumbnail and tags
+            thumb_container = Frame(
+                self.thumbnail_frame,
+                borderwidth=2,
+                relief="solid",
+                highlightbackground="gray",
+                highlightthickness=2,
+            )
+            thumb_container.grid(row=0, column=col, padx=5, pady=5, sticky='N')
+            thumb_container.grid_propagate(False)  # Prevent resizing
             
             # Update UI
-            thumb_container = Frame(self.thumbnail_frame, borderwidth=2, relief="solid")
-            thumb_container.grid(row=0, column=col, padx=5, pady=5)
             label = Label(thumb_container, image=thumb_photo)
-            label.image = thumb_photo
-            label.pack()
+            label.image = thumb_photo  # Keep reference
+            label.grid(row=0, column=col, padx=5, pady=5)
+            label.pack(pady=5)
+
+            # Display tags below the thumbnail (fixed width for alignment)
+            tags_label = Label(
+                thumb_container,
+                text=", ".join(texture_tags),
+                wraplength=200,
+                font=("Arial", 8),
+                justify="center",
+            )
+            tags_label.grid(row=1, column=col, padx=5, pady=5)
+            tags_label.pack()
     
         if len(self.thumbnail_data_cache) > self.thumbnail_cache_size:
             self.thumbnail_data_cache.pop(next(iter(self.thumbnail_data_cache)))  # Remove the oldest entry
