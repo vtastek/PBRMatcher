@@ -49,9 +49,9 @@ def fetch_api_data(url):
         return cache[url]  # Return cached response
     
     # Define the headers with the custom User-Agent
-        headers = {
-            'User-Agent': 'pbrmatcher'
-        }
+    headers = {
+        'User-Agent': 'pbrmatcher'
+    }
     
     try:
         response = requests.get(url, headers)
@@ -124,10 +124,13 @@ class TextureTagger:
 
         self.root.configure(bg="#999999")
         # Set a fixed window size
-        self.root.geometry("1600x1024")
+        self.root.geometry("1600x960")
+
+        self.center_window(1600, 960)
+
 
         # Prevent window resizing
-        self.root.resizable(True, True)
+        self.root.resizable(False, False)
 
         # GUI Elements
         self.texture_name_label = Label(root, text="", font=("Arial", 7), pady=10)
@@ -200,19 +203,27 @@ class TextureTagger:
   
         for index, (key, value) in enumerate(self.button_info.items()):
             button = Button(self.button_frame, text=value, command=lambda key=key: self.toggle_button(key))
-            button.grid(row=0, column=index, padx=10)  # Explicitly set the column
+            button.grid(row=0, column=index, padx=10)
             self.buttons[key] = button
-        
-            # Create a frame for the tagged/untagged labels
+
+            # Create a frame for the labels
             frame = Frame(self.button_frame)
-            frame.grid(row=1, column=index, padx=10)  # Match the column index of the button
+            frame.grid(row=1, column=index, padx=10)
             self.label_frames[key] = frame
-        
+
+            # Add the 'assigned' label
+            self.label_frames[f"{key}_assigned"] = Label(frame, text="0", fg="blue")
+            self.label_frames[f"{key}_assigned"].pack(side="left")
+
+            Label(frame, text="/").pack(side="left")
+            
+            # Add the 'tagged' label
             self.label_frames[f"{key}_tagged"] = Label(frame, text="0", fg="green")
             self.label_frames[f"{key}_tagged"].pack(side="left")
-        
+            
             Label(frame, text="/").pack(side="left")
-        
+            
+            # Add the 'untagged' label
             self.label_frames[f"{key}_untagged"] = Label(frame, text="0", fg="red")
             self.label_frames[f"{key}_untagged"].pack(side="left")
 
@@ -257,12 +268,26 @@ class TextureTagger:
    
         self.previous_thumbnails_button = Button(thumb_button_frame, text="Previous Thumbnails", command=self.previous_thumbnails)
         self.previous_thumbnails_button.grid(row=0, column=0, padx=10)
+        # Page indicator label
+        self.page_indicator = Label(thumb_button_frame, text="-/-")
+        self.page_indicator.grid(row=0, column=1, padx=10)
         self.next_thumbnails_button = Button(thumb_button_frame, text="Next Thumbnails", command=self.next_thumbnails)
-        self.next_thumbnails_button.grid(row=0, column=1, padx=10)
+        self.next_thumbnails_button.grid(row=0, column=2, padx=10)
        
 
 
+    def center_window(self, width, height):
+        # Get the screen width and height
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
 
+        # Calculate the position of the window
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2) - 25
+
+        # Set the window geometry
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        
     def update_selected_thumbnails_count(self):
         """Update the count of selected thumbnails for the current texture."""
         # Get the current texture path
@@ -274,18 +299,19 @@ class TextureTagger:
         # Update the label
         count = len(selected_thumbnails)
         self.selected_thumbnails_label.config(text=f"Selected Thumbnails: {count}")
+        self.update_counts()
 
 
 
     def display_thumbnails(self):
         """Display selectable thumbnails of textures from Polyhaven."""
-        start_time = time.time()
-        print("Starting display_thumbnails...")
+        #start_time = time.time()
+        #print("Starting display_thumbnails...")
 
         # Clear previous thumbnails
         for widget in self.thumbnail_frame.winfo_children():
             widget.destroy()
-        print(f"Time to clear thumbnails: {time.time() - start_time:.4f} seconds")
+        #print(f"Time to clear thumbnails: {time.time() - start_time:.4f} seconds")
 
         # Get matching textures for the current texture
         matching_textures = self.get_matching_textures()
@@ -361,9 +387,9 @@ class TextureTagger:
                         # Highlight if already selected
                         texture_path = self.filtered_texture_paths[self.current_index]
                         selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
-                        print(f"Current Texture Path: {texture_path}")
-                        print(f"Selected Thumbnails: {selected_thumbnails}")
-                        print(f"Checking Texture ID: {texture_id}")
+                        #print(f"Current Texture Path: {texture_path}")
+                        #print(f"Selected Thumbnails: {selected_thumbnails}")
+                        #print(f"Checking Texture ID: {texture_id}")
                         if texture_id in selected_thumbnails:
                             thumb_container.config(highlightbackground="blue", highlightthickness=2)
 
@@ -397,20 +423,40 @@ class TextureTagger:
         # Update the index and display thumbnails
         total_thumbnails = len(self.get_matching_textures())
         self.current_thumbnail_index = min(self.current_thumbnail_index + 5, total_thumbnails - 1)
+
+         # Calculate the current page and total pages
+        thumbnails_per_page = 5
+        current_page = (self.current_thumbnail_index // thumbnails_per_page) + 1
+        total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
+        
+        # Update the page indicator
+        self.page_indicator.config(text=f"{current_page}/{total_pages}")
+        
         self.display_thumbnails()
 
     def previous_thumbnails(self):
         """Show the next set of thumbnails."""
+        total_thumbnails = len(self.get_matching_textures())
         self.current_thumbnail_index = max(self.current_thumbnail_index - 5, 0)
+
+        # Calculate the current page and total pages
+        thumbnails_per_page = 5
+        current_page = (self.current_thumbnail_index // thumbnails_per_page) + 1
+        total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
+        
+        # Update the page indicator
+        self.page_indicator.config(text=f"{current_page}/{total_pages}")
+    
         self.display_thumbnails()
 
 
     def update_counts(self):
-        """Update the counts for each button and label."""
-        counts = {key: {"tagged": 0, "untagged": 0} for key in self.button_info}
+        """Update the counts for each button and label, including 'assigned'."""
+        counts = {key: {"tagged": 0, "untagged": 0, "assigned": 0} for key in self.button_info}
 
         for path in self.texture_paths:
             tags = self.db["textures"].get(path, {}).get("tags", [])
+            selected_thumbnails = self.db["textures"].get(path, {}).get("selected_thumbnails", [])
             for key in self.button_info:
                 if os.path.basename(path).startswith(key):
                     if tags:
@@ -418,9 +464,17 @@ class TextureTagger:
                     else:
                         counts[key]["untagged"] += 1
 
+                    if selected_thumbnails:  # Check if there are selected thumbnails
+                        counts[key]["assigned"] += 1
+                        #print("assignedcounted")
+
         for key, count in counts.items():
             self.label_frames[f"{key}_tagged"].config(text=str(count["tagged"]))
             self.label_frames[f"{key}_untagged"].config(text=str(count["untagged"]))
+            
+            # Update the 'assigned' label dynamically
+            if f"{key}_assigned" in self.label_frames:
+                self.label_frames[f"{key}_assigned"].config(text=str(count["assigned"]))
 
         # Misc counts
         misc_tagged = sum(
@@ -433,19 +487,32 @@ class TextureTagger:
             if not any(os.path.basename(path).startswith(key) for key in self.button_info)
             and not self.db["textures"].get(path, {}).get("tags")
         )
+        misc_assigned = sum(
+            1 for path in self.texture_paths
+            if not any(os.path.basename(path).startswith(key) for key in self.button_info)
+            and self.db["textures"].get(path, {}).get("selected_thumbnails", [])
+        )
 
         self.misc_label_tagged.config(text=str(misc_tagged))
         self.misc_label_untagged.config(text=str(misc_untagged))
-        
+        # Add 'assigned' count for misc
+        if hasattr(self, "misc_label_assigned"):
+            self.misc_label_assigned.config(text=str(misc_assigned))
+
         # All counts
         all_tagged = sum(
             1 for path in self.texture_paths if self.db["textures"].get(path, {}).get("tags")
         )
         all_untagged = len(self.texture_paths) - all_tagged
+        all_assigned = sum(
+            1 for path in self.texture_paths
+            if self.db["textures"].get(path, {}).get("selected_thumbnails", [])
+        )
 
         self.all_label_tagged.config(text=str(all_tagged))
         self.all_label_untagged.config(text=str(all_untagged))
-
+        if hasattr(self, "all_label_assigned"):
+            self.all_label_assigned.config(text=str(all_assigned))
 
     def get_texture_paths(self):
         paths = []
@@ -503,6 +570,19 @@ class TextureTagger:
 
         self.apply_filters()
         self.update_counts()
+        self.update_pagination()
+
+    def update_pagination(self):
+        # Get the total number of thumbnails and calculate the total pages
+        total_thumbnails = len(self.get_matching_textures())
+        thumbnails_per_page = 5
+        total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
+        
+        # Calculate the current page
+        current_page = (self.current_thumbnail_index // thumbnails_per_page) + 1
+        
+        # Update the page indicator label
+        self.page_indicator.config(text=f"{current_page}/{total_pages}")
 
 
     def apply_filters(self):
@@ -575,11 +655,13 @@ class TextureTagger:
     def next_texture(self):
         if self.current_index < len(self.filtered_texture_paths) - 1:
             self.current_index += 1
+            self.update_pagination()
             self.display_texture()
 
     def previous_texture(self):
         if self.current_index > 0:
             self.current_index -= 1
+            self.update_pagination()
             self.display_texture()
 
     def show_all_textures(self):
