@@ -17,8 +17,15 @@ DB_FILE = "db.json"
 def load_database():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r") as f:
-            return json.load(f)
+            db = json.load(f)
+
+        # Ensure all textures have a selected_thumbnails key
+        for texture_path, texture_data in db.get("textures", {}).items():
+            texture_data.setdefault("selected_thumbnails", [])
+
+        return db
     return {"textures": {}}
+
 
 def save_database(db):
     with open(DB_FILE, "w") as f:
@@ -223,6 +230,9 @@ class TextureTagger:
         self.all_button = Button(self.button_frame, text="All", command=self.toggle_all_buttons)
         self.all_button.grid(row=0, column=len(self.button_info) + 1, padx=10)
 
+        self.selected_thumbnails_label = Label(self.root, text="Selected Thumbnails: 0", font=("Arial", 12))
+        self.selected_thumbnails_label.pack(pady=5)
+
         self.all_frame = Frame(self.button_frame)
         self.all_frame.grid(row=1, column=len(self.button_info) + 1, padx=10)
 
@@ -238,14 +248,24 @@ class TextureTagger:
         self.display_texture()
         self.update_counts()
 
-        self.previous_thumbnails_button = Button(root, text="Previous Thumbnails", command=self.previous_thumbnails)
-        self.previous_thumbnails_button.pack(pady=10)
-
         self.next_thumbnails_button = Button(root, text="Next Thumbnails", command=self.next_thumbnails)
         self.next_thumbnails_button.pack(pady=10)
         # Add the "Previous Thumbnails" button in __init__
         self.previous_thumbnails_button = Button(root, text="Previous Thumbnails", command=self.previous_thumbnails)
         self.previous_thumbnails_button.pack(pady=10)
+
+
+    def update_selected_thumbnails_count(self):
+        """Update the count of selected thumbnails for the current texture."""
+        # Get the current texture path
+        texture_path = self.filtered_texture_paths[self.current_index]
+
+        # Retrieve selected thumbnails for the current texture
+        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+
+        # Update the label
+        count = len(selected_thumbnails)
+        self.selected_thumbnails_label.config(text=f"Selected Thumbnails: {count}")
 
 
 
@@ -266,16 +286,19 @@ class TextureTagger:
         start_index = self.current_thumbnail_index
         end_index = start_index + 5
         paginated_textures = matching_textures[start_index:end_index]
+        #print(json.dumps(matching_textures, indent=4))
 
         if not paginated_textures:
             no_results_label = Label(self.thumbnail_frame, text="No matching thumbnails found.", font=("Arial", 12))
             no_results_label.pack(pady=10)
+            self.update_selected_thumbnails_count()
             return
 
         # Display thumbnails and tags for each matching texture
         for col, texture in enumerate(paginated_textures):
             thumbnail_url = texture.get("thumbnail_url")
-            texture_id = texture.get("id")  # Unique ID for the texture
+            texture_id = texture.get("name")  # Unique ID for the texture
+            
             texture_tags = texture.get("tags", [])
 
             if thumbnail_url:
@@ -292,31 +315,34 @@ class TextureTagger:
                             borderwidth=2,
                             relief="solid",
                             highlightbackground="gray",
-                            highlightthickness=2,
-                            width=140,
-                            height=180
+                            highlightthickness=2
                         )
-                        thumb_container.grid(row=0, column=col, padx=10, pady=5)
+                        
+                        thumb_container.grid(row=0, column=col, padx=10, pady=5, sticky="N")
                         thumb_container.grid_propagate(False)  # Prevent resizing
 
                         # Display the thumbnail image
                         thumb_label = Label(thumb_container, image=thumb_photo)
                         thumb_label.image = thumb_photo  # Keep reference to prevent garbage collection
                         thumb_label.pack(pady=5)
+                      
 
                         # Display texture tags
                         tags_label = Label(
                             thumb_container,
                             text=", ".join(texture_tags),
-                            wraplength=130,  # Ensure text wraps within the container
+                            wraplength=250,  # Ensure text wraps within the container
                             font=("Arial", 8),
-                            justify="center"
+                            justify="center",
+                            height=4
                         )
+                        thumb_label.pack(fill=None, expand=False)
                         tags_label.pack(pady=5)
 
                         # Handle click to select/unselect thumbnail
                         def on_click(event=None, texture_id=texture_id, container=thumb_container):
                             self.toggle_selection(texture_id, container)
+                            self.update_selected_thumbnails_count()
 
                         # Bind click event to the entire container
                         thumb_container.bind("<Button-1>", on_click)
@@ -324,14 +350,28 @@ class TextureTagger:
                         tags_label.bind("<Button-1>", on_click)
 
                         # Highlight if already selected
-                        if texture_id in self.db.get("selected_thumbnails", []):
+                        texture_path = self.filtered_texture_paths[self.current_index]
+                        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+                        print(f"Current Texture Path: {texture_path}")
+                        print(f"Selected Thumbnails: {selected_thumbnails}")
+                        print(f"Checking Texture ID: {texture_id}")
+                        if texture_id in selected_thumbnails:
                             thumb_container.config(highlightbackground="blue", highlightthickness=3)
+
                 except Exception as e:
                     print(f"Error loading thumbnail from {thumbnail_url}: {e}")
+        # Update the selected thumbnails count
+        self.update_selected_thumbnails_count()
 
     def toggle_selection(self, texture_id, container):
-        """Toggle selection of a thumbnail and update the database."""
-        selected_thumbnails = self.db.setdefault("selected_thumbnails", [])
+        """Toggle selection of a thumbnail for the current texture and update the database."""
+        # Get the current texture path
+        texture_path = self.filtered_texture_paths[self.current_index]
+
+        # Ensure selected_thumbnails is initialized
+        texture_data = self.db["textures"].setdefault(texture_path, {})
+        selected_thumbnails = texture_data.setdefault("selected_thumbnails", [])
+
         if texture_id in selected_thumbnails:
             # Deselect
             selected_thumbnails.remove(texture_id)
@@ -339,26 +379,20 @@ class TextureTagger:
         else:
             # Select
             selected_thumbnails.append(texture_id)
-            container.config(highlightbackground="blue", highlightthickness=2)
+            container.config(highlightbackground="blue", highlightthickness=3)
 
         # Save changes to the database
         save_database(self.db)
 
-    def previous_thumbnails(self):
-        """Show the previous set of thumbnails."""
-        self.current_thumbnail_index -= 5
-        self.display_thumbnails()
-         
-      
-
     def next_thumbnails(self):
         # Update the index and display thumbnails
-        self.current_thumbnail_index += 5
+        total_thumbnails = len(self.get_matching_textures())
+        self.current_thumbnail_index = min(self.current_thumbnail_index + 5, total_thumbnails - 1)
         self.display_thumbnails()
 
     def previous_thumbnails(self):
         """Show the next set of thumbnails."""
-        self.current_thumbnail_index -= 5
+        self.current_thumbnail_index = max(self.current_thumbnail_index - 5, 0)
         self.display_thumbnails()
 
 
@@ -579,11 +613,13 @@ class TextureTagger:
         if not all_textures:
             return []  # No textures fetched, return empty
 
-        # Filter assets by matching tags
+        # Filter assets by matching tags and store each texture as an object
         matching_textures = [
-            texture for texture in all_textures.values()
+            texture  # The whole texture object will be stored, including the 'id' field
+            for texture in all_textures.values()
             if any(tag in texture.get("tags", []) for tag in current_tags)
         ]
+
 
         return matching_textures
 
