@@ -122,7 +122,7 @@ class TextureTagger:
         #self.all_assets = {}
         self.all_assets = fetch_api_data("https://api.polyhaven.com/assets?type=textures")
 
-
+        self.root.configure(bg="#999999")
         # Set a fixed window size
         self.root.geometry("1600x1024")
 
@@ -133,9 +133,19 @@ class TextureTagger:
         self.texture_name_label = Label(root, text="", font=("Arial", 7), pady=10)
         self.texture_name_label.pack()
 
-        self.image_label = Label(root)
-        self.image_label.pack()
+        self.label_frame = Frame(root, bg="black")
+        self.label_frame.pack()
+        self.image_label = Label(self.label_frame, bg="black")
+        self.image_label.pack(fill="both", padx=100, pady=10)
 
+        self.previous_button = Button(root, text="Previous", command=self.previous_texture)
+        self.previous_button.place(relx=0.0, rely=0.1, anchor="nw", x=5) 
+        #self.previous_button.pack(side="left", padx=5)
+
+        self.next_button = Button(root, text="Next", command=self.next_texture)
+        self.next_button.place(relx=1.0, rely=0.1, anchor="ne", x=-5) 
+        #self.next_button.pack(side="right", padx=5)
+        
         # Create a frame for tags list and buttons
         self.tags_frame = Frame(root)
         self.tags_frame.pack()
@@ -156,18 +166,12 @@ class TextureTagger:
         self.tag_entry = Entry(root)
         self.tag_entry.pack()
 
-        self.previous_button = Button(root, text="Previous", command=self.previous_texture)
-        self.previous_button.pack(side="left", padx=5)
-
-        self.next_button = Button(root, text="Next", command=self.next_texture)
-        self.next_button.pack(side="right", padx=5)
-
         # Create a frame for togglable buttons
         self.button_frame = Frame(root)
         self.button_frame.pack()
 
         # Frame for displaying thumbnails
-        self.thumbnail_frame = Frame(root)
+        self.thumbnail_frame = Frame(root, bg="black")
         self.thumbnail_frame.pack(pady=10)
 
         # Add togglable buttons with labels
@@ -248,11 +252,15 @@ class TextureTagger:
         self.display_texture()
         self.update_counts()
 
-        self.next_thumbnails_button = Button(root, text="Next Thumbnails", command=self.next_thumbnails)
-        self.next_thumbnails_button.pack(pady=10)
-        # Add the "Previous Thumbnails" button in __init__
-        self.previous_thumbnails_button = Button(root, text="Previous Thumbnails", command=self.previous_thumbnails)
-        self.previous_thumbnails_button.pack(pady=10)
+        thumb_button_frame = Frame(root)
+        thumb_button_frame.pack()
+   
+        self.previous_thumbnails_button = Button(thumb_button_frame, text="Previous Thumbnails", command=self.previous_thumbnails)
+        self.previous_thumbnails_button.grid(row=0, column=0, padx=10)
+        self.next_thumbnails_button = Button(thumb_button_frame, text="Next Thumbnails", command=self.next_thumbnails)
+        self.next_thumbnails_button.grid(row=0, column=1, padx=10)
+       
+
 
 
     def update_selected_thumbnails_count(self):
@@ -315,14 +323,15 @@ class TextureTagger:
                             borderwidth=2,
                             relief="solid",
                             highlightbackground="gray",
-                            highlightthickness=2
+                            highlightthickness=2,
+                            bg="black"
                         )
                         
                         thumb_container.grid(row=0, column=col, padx=10, pady=5, sticky="N")
                         thumb_container.grid_propagate(False)  # Prevent resizing
 
                         # Display the thumbnail image
-                        thumb_label = Label(thumb_container, image=thumb_photo)
+                        thumb_label = Label(thumb_container, image=thumb_photo, bg="black")
                         thumb_label.image = thumb_photo  # Keep reference to prevent garbage collection
                         thumb_label.pack(pady=5)
                       
@@ -356,7 +365,7 @@ class TextureTagger:
                         print(f"Selected Thumbnails: {selected_thumbnails}")
                         print(f"Checking Texture ID: {texture_id}")
                         if texture_id in selected_thumbnails:
-                            thumb_container.config(highlightbackground="blue", highlightthickness=3)
+                            thumb_container.config(highlightbackground="blue", highlightthickness=2)
 
                 except Exception as e:
                     print(f"Error loading thumbnail from {thumbnail_url}: {e}")
@@ -379,7 +388,7 @@ class TextureTagger:
         else:
             # Select
             selected_thumbnails.append(texture_id)
-            container.config(highlightbackground="blue", highlightthickness=3)
+            container.config(highlightbackground="blue", highlightthickness=2)
 
         # Save changes to the database
         save_database(self.db)
