@@ -6,6 +6,7 @@ import requests
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
 from tkinter import messagebox
 from PIL import Image, ImageTk
+from urllib.parse import urlparse
 
 
 # Initialize or load JSON database
@@ -21,6 +22,75 @@ def save_database(db):
     with open(DB_FILE, "w") as f:
         json.dump(db, f, indent=4)
 
+CACHE_FILE = "api_cache.json"
+
+def load_api_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_api_cache(cache):
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=4)
+
+def fetch_api_data(url):
+    cache = load_api_cache()
+    if url in cache:
+        return cache[url]  # Return cached response
+    
+    # Define the headers with the custom User-Agent
+        headers = {
+            'User-Agent': 'pbrmatcher'
+        }
+    
+    try:
+        response = requests.get(url, headers)
+        if response.status_code == 200:
+            cache[url] = response.json()
+            save_api_cache(cache)
+            return cache[url]
+        else:
+            messagebox.showerror("Network Error", f"Failed to fetch data. Status code: {response.status_code}")
+    except requests.RequestException as e:
+        messagebox.showerror("Network Error", f"An error occurred: {e}")
+    
+    return None
+
+THUMBNAIL_CACHE_DIR = "thumbnails"
+
+def ensure_thumbnail_cache_dir():
+    if not os.path.exists(THUMBNAIL_CACHE_DIR):
+        os.makedirs(THUMBNAIL_CACHE_DIR)
+
+def get_cached_thumbnail_path(thumbnail_url):
+    ensure_thumbnail_cache_dir()
+    # Parse the URL and extract the path
+    parsed_url = urlparse(thumbnail_url)
+    filename = os.path.basename(parsed_url.path)  # Extract the filename without query parameters
+    return os.path.join(THUMBNAIL_CACHE_DIR, filename)
+
+def fetch_thumbnail(thumbnail_url):
+    cache_path = get_cached_thumbnail_path(thumbnail_url)
+    if os.path.exists(cache_path):
+        return Image.open(cache_path)  # Load from cache
+
+    try:
+        response = requests.get(thumbnail_url, stream=True)  # Stream to avoid loading full image in memory
+        if response.status_code == 200:
+            with open(cache_path, "wb") as f:
+                for chunk in response.iter_content(1024):  # Save in chunks
+                    f.write(chunk)
+            return Image.open(cache_path)
+        else:
+            print(f"Failed to fetch thumbnail. Status code: {response.status_code}")
+    except requests.RequestException as e:
+        print(f"An error occurred: {e}")
+    return None
+
+
+
+
 # GUI
 class TextureTagger:
     def __init__(self, root, db):
@@ -34,7 +104,8 @@ class TextureTagger:
         # Initialize current_thumbnail_index in __init__
         self.current_thumbnail_index = 0
 
-        self.all_assets = {}
+        #self.all_assets = {}
+        self.all_assets = fetch_api_data("https://api.polyhaven.com/assets?type=textures")
 
 
         # Set a fixed window size
@@ -164,6 +235,9 @@ class TextureTagger:
         # Add the "Next Thumbnails" button in __init__
         self.next_thumbnails_button = Button(root, text="Next Thumbnails", command=self.next_thumbnails)
         self.next_thumbnails_button.pack(pady=10)
+        # Add the "Previous Thumbnails" button in __init__
+        self.previous_thumbnails_button = Button(root, text="Previous Thumbnails", command=self.previous_thumbnails)
+        self.previous_thumbnails_button.pack(pady=10)
 
 
 
@@ -173,92 +247,75 @@ class TextureTagger:
         for widget in self.thumbnail_frame.winfo_children():
             widget.destroy()
 
-        # Get the tags of the current texture
-        texture_path = self.filtered_texture_paths[self.current_index]
-        tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+        # Get matching textures for the current texture
+        matching_textures = self.get_matching_textures()
 
-        # Define the headers with the custom User-Agent
-        headers = {
-            'User-Agent': 'pbrmatcher'
-        }
+        # Paginate the thumbnails (show 5 at a time)
+        start_index = self.current_thumbnail_index
+        end_index = start_index + 5
+        paginated_textures = matching_textures[start_index:end_index]
 
-        # Fetch textures from Polyhaven API
-        url = f"https://api.polyhaven.com/assets?type=textures"
-        try:
-            response = requests.get(url, headers)
-            if response.status_code == 200:
-                textures = response.json()
+        if not paginated_textures:
+            no_results_label = Label(self.thumbnail_frame, text="No matching thumbnails found.", font=("Arial", 12))
+            no_results_label.pack(pady=10)
+            return
 
-                # Find textures matching any of the current texture's tags
-                matching_textures = [
-                    texture for texture in textures.values()
-                    if any(tag in texture.get("tags", []) for tag in tags)
-                ]
+        # Display thumbnails and tags for each matching texture
+        for col, texture in enumerate(paginated_textures):
+            thumbnail_url = texture.get("thumbnail_url")
+            texture_id = texture.get("id")  # Unique ID for the texture
+            texture_tags = texture.get("tags", [])
 
-                # Paginate the thumbnails (show 5 at a time)
-                start_index = self.current_thumbnail_index
-                end_index = start_index + 5
-                paginated_textures = matching_textures[start_index:end_index]
+            if thumbnail_url:
+                try:
+                    # Fetch the thumbnail (use caching)
+                    thumb_img = fetch_thumbnail(thumbnail_url)
+                    if thumb_img:
+                        thumb_img.thumbnail((256, 256))  # Adjust thumbnail size for display
+                        thumb_photo = ImageTk.PhotoImage(thumb_img)
 
-                if paginated_textures:
-                    for col, texture in enumerate(paginated_textures):
-                        thumbnail_url = texture.get("thumbnail_url")
-                        texture_id = texture.get("id")  # Unique ID for the texture
-                        texture_tags = texture.get("tags", [])
-                        if thumbnail_url:
-                            try:
-                                # Load thumbnail image
-                                thumb_response = requests.get(thumbnail_url)
-                                thumb_img = Image.open(io.BytesIO(thumb_response.content))
-                                thumb_img.thumbnail((512, 512))
-                                thumb_photo = ImageTk.PhotoImage(thumb_img)
+                        # Create a fixed-size container for thumbnail and tags
+                        thumb_container = Frame(
+                            self.thumbnail_frame,
+                            borderwidth=2,
+                            relief="solid",
+                            highlightbackground="gray",
+                            highlightthickness=2,
+                            width=140,
+                            height=180
+                        )
+                        thumb_container.grid(row=0, column=col, padx=10, pady=5)
+                        thumb_container.grid_propagate(False)  # Prevent resizing
 
-                                # Create a fixed-size frame for thumbnail and tags
-                                thumb_container = Frame(
-                                    self.thumbnail_frame,
-                                    borderwidth=2,
-                                    relief="solid",
-                                    highlightbackground="gray",
-                                    highlightthickness=2,
-                                )
-                                thumb_container.grid(row=0, column=col, padx=5, pady=5, sticky='N')
-                                thumb_container.grid_propagate(False)  # Prevent resizing
+                        # Display the thumbnail image
+                        thumb_label = Label(thumb_container, image=thumb_photo)
+                        thumb_label.image = thumb_photo  # Keep reference to prevent garbage collection
+                        thumb_label.pack(pady=5)
 
-                                # Display thumbnail image
-                                label = Label(thumb_container, image=thumb_photo)
-                                label.image = thumb_photo  # Keep reference
-                                label.grid(row=0, column=col, padx=5, pady=5)
-                                label.pack(pady=5)
+                        # Display texture tags
+                        tags_label = Label(
+                            thumb_container,
+                            text=", ".join(texture_tags),
+                            wraplength=130,  # Ensure text wraps within the container
+                            font=("Arial", 8),
+                            justify="center"
+                        )
+                        tags_label.pack(pady=5)
 
-                                # Display tags below the thumbnail (fixed width for alignment)
-                                tags_label = Label(
-                                    thumb_container,
-                                    text=", ".join(texture_tags),
-                                    wraplength=200,
-                                    font=("Arial", 8),
-                                    justify="center",
-                                )
-                                tags_label.grid(row=1, column=col, padx=5, pady=5)
-                                tags_label.pack()
+                        # Handle click to select/unselect thumbnail
+                        def on_click(event=None, texture_id=texture_id, container=thumb_container):
+                            self.toggle_selection(texture_id, container)
 
-                                # Handle click to select/unselect thumbnail
-                                def on_click(event=None, texture_id=texture_id, container=thumb_container):
-                                    self.toggle_selection(texture_id, container)
+                        # Bind click event to the entire container
+                        thumb_container.bind("<Button-1>", on_click)
+                        thumb_label.bind("<Button-1>", on_click)
+                        tags_label.bind("<Button-1>", on_click)
 
-                                # Bind click event to the entire container
-                                thumb_container.bind("<Button-1>", on_click)
-                                label.bind("<Button-1>", on_click)
-                                tags_label.bind("<Button-1>", on_click)
-
-                                # Highlight if already selected
-                                if texture_id in self.db.get("selected_thumbnails", []):
-                                    thumb_container.config(highlightbackground="blue", highlightthickness=3)
-                            except Exception as e:
-                                print(f"Error loading thumbnail from {thumbnail_url}: {e}")
-            else:
-                messagebox.showerror("Network Error", f"Failed to fetch textures. Status code: {response.status_code}")
-        except requests.RequestException as e:
-            messagebox.showerror("Network Error", f"An error occurred: {e}")
+                        # Highlight if already selected
+                        if texture_id in self.db.get("selected_thumbnails", []):
+                            thumb_container.config(highlightbackground="blue", highlightthickness=3)
+                except Exception as e:
+                    print(f"Error loading thumbnail from {thumbnail_url}: {e}")
 
     def toggle_selection(self, texture_id, container):
         """Toggle selection of a thumbnail and update the database."""
@@ -279,6 +336,11 @@ class TextureTagger:
     def next_thumbnails(self):
         """Show the next set of thumbnails."""
         self.current_thumbnail_index += 5
+        self.display_thumbnails()
+
+    def previous_thumbnails(self):
+        """Show the next set of thumbnails."""
+        self.current_thumbnail_index -= 5
         self.display_thumbnails()
 
 
@@ -468,67 +530,28 @@ class TextureTagger:
         # Update counts
         self.update_counts()
 
-    def fetch_thumbnails(self):
-        tag = self.tag_entryThumb.get().strip()
-        print(f"Tag entered: '{tag}'") # Debugging line
-        if not tag:
-            messagebox.showwarning("Input Error", "Please enter a tag.")
-            return
+    def get_matching_textures(self):
+        """Retrieve textures from the Polyhaven API that match the tags of the current texture."""
+        # Get the current texture path
+        texture_path = self.filtered_texture_paths[self.current_index]
 
-        url = f"https://api.polyhaven.com/assets?type=textures"
+        # Retrieve tags for the current texture
+        current_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+        if not current_tags:
+            return []  # No tags, no matching textures
 
-        # Log the request URL
-        print(f"Requesting URL: {url}")
+        # Fetch all assets from Polyhaven
+        all_textures = self.all_assets or fetch_api_data("https://api.polyhaven.com/assets?type=textures")
+        if not all_textures:
+            return []  # No textures fetched, return empty
 
-        try:
-            response = requests.get(url)
+        # Filter assets by matching tags
+        matching_textures = [
+            texture for texture in all_textures.values()
+            if any(tag in texture.get("tags", []) for tag in current_tags)
+        ]
 
-            # Log the response status code and the first 500 characters of the response content
-            print(f"Response Status Code: {response.status_code}")
-            print(f"Response Content: {response.text[:500]}")  # Show the first 500 chars of the response
-
-            if response.status_code == 200:
-                try:
-                    data = response.json()  # Try to parse JSON
-                    print(f"Response JSON Data: {data}")  # Log the full JSON response
-
-                    self.all_assets = data  # All data is textures
-
-                    # Filter assets by tag
-                    filtered_assets = [
-                        asset for asset in self.all_assets.values() if tag in asset.get("tags", [])
-                    ]
-
-                    if filtered_assets:
-                        # Get the first matching asset's thumbnail URL
-                        first_asset = filtered_assets[0]
-                        thumbnail_url = first_asset.get("thumbnail_url")
-
-                        # Display the thumbnail
-                        self.display_thumbnail(thumbnail_url)
-                    else:
-                        messagebox.showinfo("No Results", f"No textures found for the tag '{tag}'.")
-                except ValueError as e:
-                    messagebox.showerror("JSON Error", f"Failed to parse JSON: {e}")
-            else:
-                messagebox.showerror("Network Error", f"Failed to fetch data. Status code: {response.status_code}")
-                
-        except requests.RequestException as e:
-            messagebox.showerror("Network Error", f"An error occurred: {e}")
-
-    def display_thumbnail(self, url):
-        try:
-            response = requests.get(url)
-            img = Image.open(io.BytesIO(response.content))
-            img = img.resize((256, 256))  # Resize the image for display
-            img_tk = ImageTk.PhotoImage(img)
-
-            self.thumbnail_label.config(image=img_tk)
-            self.thumbnail_label.image = img_tk  # Keep a reference to avoid garbage collection
-        except Exception as e:
-            messagebox.showerror("Image Error", f"Failed to display image: {e}")
-
-
+        return matching_textures
 
 # Main
 if __name__ == "__main__":
