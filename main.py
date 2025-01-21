@@ -5,10 +5,15 @@ import io
 import requests
 import threading
 import time
+import re
+import cv2
+import numpy as np
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from PIL import Image, ImageTk
 from urllib.parse import urlparse
+
+
 
 
 # Initialize or load JSON database
@@ -148,6 +153,22 @@ class TextureTagger:
         self.next_button = Button(root, text="Next", command=self.next_texture)
         self.next_button.place(relx=1.0, rely=0.1, anchor="ne", x=-5) 
         #self.next_button.pack(side="right", padx=5)
+
+        # Create the download frame and add the button and progress bar
+        self.download_frame = Frame(root)
+        self.download_frame.place(relx=0.9, rely=0.1, anchor="ne", x=-5)
+
+        self.download_button = Button(self.download_frame, text="Download Texture", command=self.download_texture)
+        self.download_button.grid(row=0, column=0, pady=10)
+
+        # Add a Progressbar widget to the GUI
+        self.progress_label = ttk.Label(self.download_frame, text="Downloading Textures...")
+        self.progress_label.grid(row=1, column=0, pady=10)
+
+        self.progress_bar = ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
+        self.progress_bar.grid(row=2, column=0, pady=5)
+
+
         
         # Create a frame for tags list and buttons
         self.tags_frame = Frame(root)
@@ -713,6 +734,220 @@ class TextureTagger:
 
 
         return matching_textures
+
+    def download_texture(self):
+        # Get the current texture path using the current index
+        texture_path = self.filtered_texture_paths[self.current_index]
+
+        # Retrieve selected thumbnails for the current texture from the database
+        download_list = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+
+        # Check if there are any thumbnails
+        if not download_list:
+            print(f"No selected thumbnails for texture: {texture_path}")
+            messagebox.showerror("Error", f"No selected thumbnails for texture: {texture_path}")
+            return
+
+        print(f"Selected thumbnails for {texture_path}: {download_list}")
+
+        # Create the "staging" folder if it doesn't exist
+        if not os.path.exists("staging"):
+            os.makedirs("staging")
+
+        # Prepare a list to store all URLs from the download list
+        all_urls = []
+
+        # Loop through each item in the download list and extract the URLs
+        for texture_id in download_list:
+            # Replace spaces with underscores and turn to lowercase
+            texture_id = texture_id.replace(" ", "_").lower()
+
+            # Construct the URL for downloading the texture
+            url = f"https://api.polyhaven.com/files/{texture_id}"
+
+            try:
+                # Make the GET request to fetch texture metadata
+                data = requests.get(url)
+
+                # Check if the request was successful
+                if data.status_code == 200:
+                    #messagebox.showinfo("Success", f"Texture '{texture_id}' exists!")
+                    print("success")
+                else:
+                    messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
+                    continue
+
+                # Extract all URLs under $map from the metadata response
+                texture_urls = self.extract_urls(data.json())
+
+                # Filter texture_urls to include only those ending with "_4k.png" and excluding "_gl_"
+                filtered_urls = [
+                    texture_url for texture_url in texture_urls
+                    if texture_url.endswith("_4k.png") and "_gl_" not in texture_url
+                ]
+
+                # Add filtered URLs to the list
+                all_urls.extend(filtered_urls)
+
+            except requests.exceptions.RequestException as e:
+                messagebox.showerror("Error", f"An error occurred while fetching metadata for texture '{texture_id}': {e}")
+
+        # If no valid URLs were found, show an error and return
+        if not all_urls:
+            messagebox.showerror("Error", "No valid URLs found for selected textures.")
+            return
+
+        # Set the progress bar maximum value to the number of valid URLs
+        self.progress_bar["maximum"] = len(all_urls)
+
+        # Loop through the filtered URLs and download each texture
+        for idx, texture_url in enumerate(all_urls):
+            # Update the progress bar for each texture download
+            self.progress_bar["value"] = idx + 1  # Update progress bar to current texture
+            self.root.update_idletasks()  # Refresh the GUI to reflect progress
+
+            # Sanitize the URL to create a valid filename
+            sanitized_filename = self.sanitize_filename(texture_url)
+
+            try:
+                # Make the GET request to download the texture file
+                response = requests.get(texture_url)
+
+                # Check if the request was successful
+                if response.status_code == 200:
+                    # Save the texture's data to the "staging" folder using the sanitized filename
+                    file_path = os.path.join("staging", sanitized_filename)
+                    with open(file_path, "wb") as file:
+                        file.write(response.content)
+                    #messagebox.showinfo("Success", f"Texture downloaded successfully to 'staging' folder!")
+                else:
+                    messagebox.showerror("Error", f"Failed to download texture. Status code: {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                messagebox.showerror("Error", f"An error occurred while downloading texture: {e}")
+
+         # Remove '_result' from the texture path
+        cleaned_texture_path = texture_path.replace("_result", "")    
+        self.combine_textures(cleaned_texture_path)
+
+    def extract_urls(self, json_data):
+        """
+        Recursively extracts all URLs from the JSON response.
+        """
+        urls = []
+        if isinstance(json_data, dict):
+            for key, value in json_data.items():
+                if isinstance(value, dict) or isinstance(value, list):
+                    # Recursively extract URLs from nested dictionaries/lists
+                    urls.extend(self.extract_urls(value))
+                elif isinstance(value, str) and value.startswith("http"):
+                    # Check if the value is a URL and add it to the list
+                    urls.append(value)
+        elif isinstance(json_data, list):
+            for item in json_data:
+                urls.extend(self.extract_urls(item))
+        return list(set(urls))  # Remove duplicates by converting to a set and back to a list
+
+    def sanitize_filename(self, url):
+        """
+        Sanitizes the URL to make it a valid filename by replacing invalid characters.
+        """
+        # Parse the URL to get the path part (this removes query parameters, etc.)
+        parsed_url = urlparse(url)
+        filename = os.path.basename(parsed_url.path)  # Get the filename from the URL path
+        
+        # Replace invalid characters with underscores
+        sanitized_filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+
+        return sanitized_filename
+
+    def combine_textures(self, texture_name_label):
+        staging_dir = "staging"
+
+        # Helper function to find a file containing a specific substring
+        def find_file(substring):
+            for filename in os.listdir(staging_dir):
+                if substring in filename and filename.endswith(".png"):
+                    return os.path.join(staging_dir, filename)
+            return None
+
+        # Helper function to load an image
+        def load_image(file_path):
+            if file_path and os.path.exists(file_path):
+                return cv2.imread(file_path, cv2.IMREAD_UNCHANGED)  # Load with alpha if available
+            else:
+                print(f"File not found: {file_path}")
+                return None
+
+        # Search for files
+        arm_file = find_file("_arm_")
+        rough_file = find_file("_rough_")
+        ao_file = find_file("_ao_")
+        nor_file = find_file("_nor_")
+        disp_file = find_file("_disp_")
+        diff_file = find_file("_diff_")
+
+        # Create the first texture: {texture_name_label}_param.png
+        arm_texture = load_image(arm_file)
+        rough_texture = load_image(rough_file)
+        ao_texture = load_image(ao_file)
+
+        if arm_texture is not None and rough_texture is not None and ao_texture is not None:
+            # Extract the blue channel from the ARM texture
+            red_channel = arm_texture[:, :, 2]  # Blue channel from the ARM texture
+            
+            # Handle single-channel or multi-channel roughness texture
+            green_channel = rough_texture if len(rough_texture.shape) == 2 else rough_texture[:, :, 0]
+            
+            blue_channel = np.full_like(green_channel, 128)  # 0.5 gray (128 in 8-bit)
+            alpha_channel = ao_texture if len(ao_texture.shape) == 2 else ao_texture[:, :, 0]  # Handle single/multi-channel AO
+
+            param_texture = cv2.merge([red_channel, green_channel, blue_channel, alpha_channel])
+
+            # Save the param texture
+            param_output_path = os.path.join(staging_dir, f"{texture_name_label}_param.png")
+            os.makedirs(staging_dir, exist_ok=True)
+            cv2.imwrite(param_output_path, param_texture)
+
+        # Create the second texture: {texture_name_label}_nh.png
+        nor_texture = load_image(nor_file)
+        disp_texture = load_image(disp_file)
+
+        if nor_texture is not None and disp_texture is not None:
+            # Use the normal map for RGB and displacement for alpha
+            blue, green, red = cv2.split(nor_texture)[:3]  # Ignore alpha channel if present
+            alpha_channel = disp_texture if len(disp_texture.shape) == 2 else disp_texture[:, :, 0]
+
+            # Ensure all channels have the same dimensions
+            alpha_channel = cv2.resize(alpha_channel, (blue.shape[1], blue.shape[0]))
+
+            # Ensure all channels have the same data type
+            alpha_channel = alpha_channel.astype(blue.dtype)
+
+            # Merge channels into a single RGBA image
+            nh_texture = cv2.merge([blue, green, red, alpha_channel])
+
+            # Save the nh texture
+            nh_output_path = os.path.join(staging_dir, f"{texture_name_label}_nh.png")
+            os.makedirs(staging_dir, exist_ok=True)
+            cv2.imwrite(nh_output_path, nh_texture)
+
+
+        # Create the third texture: {texture_name_label}.png
+        diff_texture = load_image(diff_file)
+
+        print(diff_texture)
+        print(f"Staging directory: {staging_dir}")
+        print(diff_texture.shape)
+
+        if diff_texture is not None:
+            # Save the diff texture directly
+            diff_output_path = os.path.join(staging_dir, f"{texture_name_label}")
+            os.makedirs(staging_dir, exist_ok=True)
+            success = cv2.imwrite(diff_output_path, diff_texture)
+            if not success:
+                print(f"Failed to write the texture to {diff_output_path}")
+
+
 
 # Main
 if __name__ == "__main__":
