@@ -951,6 +951,50 @@ class TextureTagger:
             if not success:
                 print(f"Failed to write the texture to {diff_output_path}")
 
+        # Dynamically resolve the path to terrain_dump.txt
+        base_dir = os.path.dirname(DB_FILE)
+        terrain_dump_path = os.path.join(base_dir, "terrain_dump.txt")
+
+        # Check if texture_name_label is an LTEX record
+        def is_ltex_record(label):
+            label = os.path.basename(label)  # Extract only the filename
+
+            # Remove the "tx_" prefix
+            if label.startswith("tx_"):
+                label = label.replace("tx_", "", 1)  # Replace only the first occurrence of "tx_"
+
+            # Remove the extension
+            #label = os.path.splitext(label)[0]  # Remove the file extension
+            print(label)
+            if os.path.exists(terrain_dump_path):
+                with open(terrain_dump_path, 'r') as file:
+                    for line in file:
+                        if line.strip().startswith("LTEX:") and label in line:
+                            return True
+            return False
+
+        #print(texture_name_label)
+        if diff_texture is not None and rough_texture is not None and is_ltex_record(texture_name_label):
+            # Ensure rough_texture is single-channel
+            if len(rough_texture.shape) == 3:
+                rough_texture = rough_texture[:, :, 0]
+
+            # Merge RGB from diff_texture and Alpha from rough_texture
+            diffparam_texture = cv2.merge((
+                diff_texture[:, :, 0],  # Red channel
+                diff_texture[:, :, 1],  # Green channel
+                diff_texture[:, :, 2],  # Blue channel
+                rough_texture           # Alpha channel
+            ))
+
+            # Save the diffparam texture
+            diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
+            os.makedirs(staging_dir, exist_ok=True)
+            cv2.imwrite(diffparam_output_path, diffparam_texture)
+            print(f"Saved {diffparam_output_path}")
+        else:
+            print(f"Could not create {texture_name_label}_diffparam.png. Missing textures or not an LTEX record.")
+
         messagebox.showinfo("Successfully created PARAM AND NORM textures for ", f"Texture '{texture_name_label}")
 
 
