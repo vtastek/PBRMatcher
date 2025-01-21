@@ -748,7 +748,7 @@ class TextureTagger:
             messagebox.showerror("Error", f"No selected thumbnails for texture: {texture_path}")
             return
 
-        print(f"Selected thumbnails for {texture_path}: {download_list}")
+        #print(f"Selected thumbnails for {texture_path}: {download_list}")
 
         # Create the "staging" folder if it doesn't exist
         if not os.path.exists("staging"):
@@ -893,17 +893,19 @@ class TextureTagger:
 
         if arm_texture is not None and rough_texture is not None and ao_texture is not None:
             # Extract the blue channel from the ARM texture
-            red_channel = arm_texture[:, :, 2]  # Blue channel from the ARM texture
+            red_channel = arm_texture[:, :, 0]  # Blue channel from the ARM texture
             
             # Handle single-channel or multi-channel roughness texture
-            green_channel = rough_texture if len(rough_texture.shape) == 2 else rough_texture[:, :, 0]
+            green_channel = rough_texture
             
             blue_channel = np.full_like(green_channel, 128)  # 0.5 gray (128 in 8-bit)
-            alpha_channel = ao_texture if len(ao_texture.shape) == 2 else ao_texture[:, :, 0]  # Handle single/multi-channel AO
-
-            param_texture = cv2.merge([red_channel, green_channel, blue_channel, alpha_channel])
+            alpha_channel = ao_texture[:, :, 2]  # Handle single/multi-channel AO
+            # BGRA?
+            param_texture = cv2.merge([blue_channel, green_channel, red_channel, alpha_channel])
 
             # Save the param texture
+            texture_name_label = texture_name_label.lower().replace(".png", "")
+
             param_output_path = os.path.join(staging_dir, f"{texture_name_label}_param.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(param_output_path, param_texture)
@@ -915,7 +917,13 @@ class TextureTagger:
         if nor_texture is not None and disp_texture is not None:
             # Use the normal map for RGB and displacement for alpha
             blue, green, red = cv2.split(nor_texture)[:3]  # Ignore alpha channel if present
-            alpha_channel = disp_texture if len(disp_texture.shape) == 2 else disp_texture[:, :, 0]
+            if disp_texture.dtype == np.uint16:  # Check if the texture is 16-bit
+                #print("Converting red channel from 16-bit to 8-bit...")
+                red_channel_16bit = disp_texture[:, :, 2]  # OpenCV stores channels as BGR, so red is at index 2
+                alpha_channel = cv2.convertScaleAbs(red_channel_16bit, alpha=(255.0 / 65535.0))
+            else:
+                #print("Using the red channel as-is (already 8-bit)...")
+                alpha_channel = disp_texture[:, :, 2] if len(disp_texture.shape) == 3 else disp_texture
 
             # Ensure all channels have the same dimensions
             alpha_channel = cv2.resize(alpha_channel, (blue.shape[1], blue.shape[0]))
@@ -935,17 +943,15 @@ class TextureTagger:
         # Create the third texture: {texture_name_label}.png
         diff_texture = load_image(diff_file)
 
-        print(diff_texture)
-        print(f"Staging directory: {staging_dir}")
-        print(diff_texture.shape)
-
         if diff_texture is not None:
             # Save the diff texture directly
-            diff_output_path = os.path.join(staging_dir, f"{texture_name_label}")
+            diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
             os.makedirs(staging_dir, exist_ok=True)
             success = cv2.imwrite(diff_output_path, diff_texture)
             if not success:
                 print(f"Failed to write the texture to {diff_output_path}")
+
+        messagebox.showinfo("Successfully created PARAM AND NORM textures for ", f"Texture '{texture_name_label}")
 
 
 
