@@ -3,6 +3,8 @@ import json
 import tkinter as tk
 import io
 import requests
+import threading
+import time
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
 from tkinter import messagebox
 from PIL import Image, ImageTk
@@ -100,6 +102,12 @@ class TextureTagger:
         self.texture_paths = self.get_texture_paths()
         self.filtered_texture_paths = self.texture_paths  # For filtering purposes
         self.current_index = self.get_current_index()
+     
+        self.thumbnail_cache = {}  # Cache to store preloaded thumbnails
+        self.cache_size = 20  # Limit the cache size to avoid memory issues
+
+        self.thumbnail_data_cache = {}
+        self.thumbnail_cache_size = 20
         
         # Initialize current_thumbnail_index in __init__
         self.current_thumbnail_index = 0
@@ -230,9 +238,9 @@ class TextureTagger:
         self.display_texture()
         self.update_counts()
 
+        self.previous_thumbnails_button = Button(root, text="Previous Thumbnails", command=self.previous_thumbnails)
+        self.previous_thumbnails_button.pack(pady=10)
 
-
-        # Add the "Next Thumbnails" button in __init__
         self.next_thumbnails_button = Button(root, text="Next Thumbnails", command=self.next_thumbnails)
         self.next_thumbnails_button.pack(pady=10)
         # Add the "Previous Thumbnails" button in __init__
@@ -243,9 +251,13 @@ class TextureTagger:
 
     def display_thumbnails(self):
         """Display selectable thumbnails of textures from Polyhaven."""
+        start_time = time.time()
+        print("Starting display_thumbnails...")
+
         # Clear previous thumbnails
         for widget in self.thumbnail_frame.winfo_children():
             widget.destroy()
+        print(f"Time to clear thumbnails: {time.time() - start_time:.4f} seconds")
 
         # Get matching textures for the current texture
         matching_textures = self.get_matching_textures()
@@ -332,9 +344,15 @@ class TextureTagger:
         # Save changes to the database
         save_database(self.db)
 
+    def previous_thumbnails(self):
+        """Show the previous set of thumbnails."""
+        self.current_thumbnail_index -= 5
+        self.display_thumbnails()
+         
+      
 
     def next_thumbnails(self):
-        """Show the next set of thumbnails."""
+        # Update the index and display thumbnails
         self.current_thumbnail_index += 5
         self.display_thumbnails()
 
@@ -471,15 +489,31 @@ class TextureTagger:
 
 
     def add_tag(self):
+        # Get the current texture path
         texture_path = self.filtered_texture_paths[self.current_index]
-        new_tag = self.tag_entryThumb.get().strip()
+        
+        # Retrieve the input from the tag entry widget
+        new_tag = self.tag_entry.get().strip()  # Corrected variable name
         if new_tag:
-            existing_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+            # Safely retrieve existing tags or initialize if missing
+            texture_data = self.db["textures"].setdefault(texture_path, {})
+            existing_tags = texture_data.setdefault("tags", [])
+            
+            # Add the new tag if it doesn't exist
             if new_tag not in existing_tags:
                 existing_tags.append(new_tag)
-                self.db["textures"].setdefault(texture_path, {})["tags"] = existing_tags
+                
+                # Save changes to the database
                 save_database(self.db)
+                
+                # Update the tags displayed in the listbox
+                self.tags_listbox.insert(END, new_tag)
+        else:
+            messagebox.showwarning("Input Error", "Please enter a tag.")
+        
+        # Refresh counts and UI
         self.update_counts()
+
 
     def remove_tag(self):
         texture_path = self.filtered_texture_paths[self.current_index]
