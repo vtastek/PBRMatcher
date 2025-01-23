@@ -128,6 +128,7 @@ class TextureTagger:
         self.all_assets = fetch_api_data("https://api.polyhaven.com/assets?type=textures")
 
         self.root.configure(bg="#999999")
+
         # Set a fixed window size
         self.root.geometry("1600x960")
 
@@ -137,26 +138,33 @@ class TextureTagger:
         # Prevent window resizing
         self.root.resizable(False, False)
 
+        self.main = Frame(root)
+        self.main.configure(bg="#999999")
+        self.main.pack()
+
         # GUI Elements
-        self.texture_name_label = Label(root, text="", font=("Arial", 7), pady=10)
+        self.texture_name_label = Label(self.main, text="", font=("Arial", 7), pady=10)
         self.texture_name_label.pack()
 
-        self.label_frame = Frame(root, bg="black")
+        self.label_frame = Frame(self.main, bg="black")
         self.label_frame.pack()
         self.image_label = Label(self.label_frame, bg="black")
         self.image_label.pack(fill="both", padx=100, pady=10)
 
-        self.previous_button = Button(root, text="Previous", command=self.previous_texture)
+        self.previous_button = Button(self.main, text="Previous", command=self.previous_texture)
         self.previous_button.place(relx=0.0, rely=0.1, anchor="nw", x=5) 
         #self.previous_button.pack(side="left", padx=5)
 
-        self.next_button = Button(root, text="Next", command=self.next_texture)
+        self.next_button = Button(self.main, text="Next", command=self.next_texture)
         self.next_button.place(relx=1.0, rely=0.1, anchor="ne", x=-5) 
         #self.next_button.pack(side="right", padx=5)
 
         # Create the download frame and add the button and progress bar
-        self.download_frame = Frame(root)
-        self.download_frame.place(relx=0.9, rely=0.0, anchor="ne", x=-5, y=16)
+        self.download_frame = Frame(self.main)
+        offset = 16  # Fixed offset from top (y=16)
+        relscale = 0.9
+
+        self.download_frame.place(relx=relscale, rely=0.0, anchor="ne", y=offset)
 
         self.download_button = Button(self.download_frame, text="Download Texture", command=self.download_texture)
         self.download_button.grid(row=0, column=0, pady=10)
@@ -165,9 +173,11 @@ class TextureTagger:
         self.progress_label = ttk.Label(self.download_frame, text="Downloading Textures...")
         self.progress_label.grid(row=1, column=0, pady=10)
 
-        self.progress_bar = ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
-        self.progress_bar.grid(row=2, column=0, pady=5)
+        self.progress_bar_dummy= ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
+        self.progress_bar_dummy.grid(row=2, column=0, pady=5)
 
+      
+        
         # Add frame for slot buttons and preview
         self.slot_frame = Frame(self.download_frame)
         self.slot_frame.grid(row=3, column=0, pady=5)
@@ -196,9 +206,24 @@ class TextureTagger:
         self.preview_label = Label(self.slot_frame, text="No Preview", bg="gray")
         self.preview_label.grid(row=5, column=0, pady=5, columnspan=4)  # Span across all columns for alignment
 
+        self.root.update_idletasks()
+
+
+        self.progress_bar = ttk.Progressbar(root, orient="horizontal", length=300, mode="determinate")
+        frame_x = self.root.winfo_width() * relscale  # 90% of root's width
+        
+        # Adjust for the "ne" anchor
+        frame_x -= self.download_frame.winfo_width()  # Align by the right edge
+
+        # Add the progress bar's position inside the frame
+        dummy_x = frame_x + self.progress_bar_dummy.winfo_x()
+        dummy_y = offset + self.progress_bar_dummy.winfo_y()
+
+        # Place the root-level progress bar at the calculated position
+        self.progress_bar.place(x=dummy_x, y=dummy_y, width=self.progress_bar_dummy.winfo_width())
 
         # Create a frame for tags list and buttons
-        self.tags_frame = Frame(root)
+        self.tags_frame = Frame(self.main)
         self.tags_frame.pack()
 
         self.tags_listbox = Listbox(self.tags_frame, selectmode="multiple", height=5)
@@ -214,15 +239,15 @@ class TextureTagger:
         self.remove_tag_button = Button(self.buttons_frame, text="Remove Tag", command=self.remove_tag)
         self.remove_tag_button.pack(pady=5)
 
-        self.tag_entry = Entry(root)
+        self.tag_entry = Entry(self.main)
         self.tag_entry.pack()
 
         # Create a frame for togglable buttons
-        self.button_frame = Frame(root)
+        self.button_frame = Frame(self.main)
         self.button_frame.pack()
 
         # Frame for displaying thumbnails
-        self.thumbnail_frame = Frame(root, bg="black")
+        self.thumbnail_frame = Frame(self.main, bg="black")
         self.thumbnail_frame.pack(pady=10)
 
         # Add togglable buttons with labels
@@ -293,7 +318,7 @@ class TextureTagger:
         self.all_button = Button(self.button_frame, text="All", command=self.toggle_all_buttons)
         self.all_button.grid(row=0, column=len(self.button_info) + 1, padx=10)
 
-        self.selected_thumbnails_label = Label(self.root, text="Selected Thumbnails: 0", font=("Arial", 12))
+        self.selected_thumbnails_label = Label(self.main, text="Selected Thumbnails: 0", font=("Arial", 12))
         self.selected_thumbnails_label.pack(pady=5)
 
         self.all_frame = Frame(self.button_frame)
@@ -311,7 +336,7 @@ class TextureTagger:
         self.display_texture()
         self.update_counts()
 
-        thumb_button_frame = Frame(root)
+        thumb_button_frame = Frame(self.main)
         thumb_button_frame.pack()
    
         self.previous_thumbnails_button = Button(thumb_button_frame, text="Previous Thumbnails", command=self.previous_thumbnails)
@@ -322,10 +347,13 @@ class TextureTagger:
         self.next_thumbnails_button = Button(thumb_button_frame, text="Next Thumbnails", command=self.next_thumbnails)
         self.next_thumbnails_button.grid(row=0, column=2, padx=10)
        
+       
+
+
 
     def switch_slot(self, slot_name):
         self.selected_slot = slot_name
-        print(f"Switched to slot: {slot_name}")  # Debugging
+        #print(f"Switched to slot: {slot_name}")  # Debugging
         self.update_selected_thumbnails_count()  # Update preview
 
     def center_window(self, width, height):
@@ -347,7 +375,7 @@ class TextureTagger:
 
         # Retrieve selected thumbnails for the current texture
         selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
-        print(f"Selected thumbnails: {selected_thumbnails}")
+        #print(f"Selected thumbnails: {selected_thumbnails}")
 
         # Set a default selected slot if none is set or out of range
         if len(selected_thumbnails) > 0:
@@ -380,7 +408,7 @@ class TextureTagger:
                 thumbnail_name = selected_thumbnails[slot_index]
                 normalized_name = thumbnail_name.lower().replace(" ", "_")
                 thumbnail_path = f"thumbnails\\{normalized_name}.png"
-                print(f"Slot: {self.selected_slot}, Thumbnail path: {thumbnail_path}")
+                #print(f"Slot: {self.selected_slot}, Thumbnail path: {thumbnail_path}")
 
                 # Load and display the thumbnail
                 if os.path.exists(thumbnail_path):
@@ -820,39 +848,91 @@ class TextureTagger:
         return matching_textures
 
     def download_texture(self):
-        """Download the texture files for the currently selected slot."""
-        # Get the current texture path using the current index
-        texture_path = self.filtered_texture_paths[self.current_index]
-
-        # Retrieve selected thumbnails for the current texture from the database
-        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
-
-        # Check if there is a selected slot and if it is valid
+        """Start the download process in a separate thread."""
+        # Check if a slot is selected
         if not self.selected_slot:
-            print("No slot selected.")
-            messagebox.showerror("Error", "No slot selected.")
+            messagebox.showerror("Error", "No slot selected for download.")
             return
 
-        # Map the selected slot to the index
-        slot_index = ord(self.selected_slot) - ord('A')
-        if slot_index < 0 or slot_index >= len(selected_thumbnails):
-            print(f"Invalid slot index: {slot_index}")
-            messagebox.showerror("Error", "Invalid slot selection.")
-            return
+        # Change the cursor to busy
+        self.root.config(cursor="wait")
+        # Add an overlay and prevent user interactions
+        self.overlay = Frame(self.root, bg="")
+        self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-        # Get the specific thumbnail for the selected slot
-        thumbnail_name = selected_thumbnails[slot_index]
-        print(f"Downloading for slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+        self.overlay_active = True  # Track the state of the overlay
+        
+        self.last_window_state = self.root.state()  # Store the initial state
 
-        # Construct the download URL
-        texture_id = thumbnail_name.replace(" ", "_").lower()
-        url = f"https://api.polyhaven.com/files/{texture_id}"
+        def check_window_state():
+            """Check the current window state and handle minimize/restore."""
+            current_state = self.root.state()
+            if current_state != self.last_window_state:
+                if current_state == "iconic":  # Minimized
+                    #print("minimized")
+                    if hasattr(self, 'overlay') and self.overlay_active:
+                        self.overlay.place_forget()
+                        self.overlay_active = False
+                elif current_state == "normal":  # Restored
+                    #print("restored")
+                    if hasattr(self, 'overlay') and not self.overlay_active:
+                        self.root.after_idle(
+                            lambda: self.root.after(100, lambda: self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1))
+                        )
+                        self.overlay_active = True
 
-        # Create the "staging" folder if it doesn't exist
-        if not os.path.exists("staging"):
-            os.makedirs("staging")
+                # Update the last known state
+                self.last_window_state = current_state
+
+            # Check again after a short delay
+            self.root.after(100, check_window_state)
+
+        # Start monitoring window state
+        self.root.after(100, check_window_state)
+
+
+        self.progress_bar.lift(self.overlay)
+        
+        # Capture clicks
+        self.overlay.bind("<Button-1>", lambda e: None)
+
+        #self.root.update_idletasks()
+    
+        # Start the download in a separate thread
+        download_thread = threading.Thread(target=self._perform_download, daemon=True)
+        download_thread.start()
+
+    
+    def _perform_download(self):
+        """Perform the actual download process (runs in a separate thread)."""
+        
 
         try:
+            # Get the current texture path using the current index
+            texture_path = self.filtered_texture_paths[self.current_index]
+
+            # Retrieve selected thumbnails for the current texture from the database
+            selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+            slot_index = ord(self.selected_slot) - ord('A')
+
+            # Validate slot index
+            if slot_index < 0 or slot_index >= len(selected_thumbnails):
+                print(f"Invalid slot index: {slot_index}")
+                messagebox.showerror("Error", f"Invalid slot index for slot {self.selected_slot}.")
+                return
+
+            # Get the specific thumbnail name for the selected slot
+            thumbnail_name = selected_thumbnails[slot_index].lower().replace(" ", "_")
+            #print(f"Downloading for slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+
+            # Construct the download URL
+            texture_id = thumbnail_name
+            url = f"https://api.polyhaven.com/files/{texture_id}"
+
+            # Create the "staging" folder if it doesn't exist
+            if not os.path.exists("staging"):
+                os.makedirs("staging")
+
             # Fetch texture metadata
             data = requests.get(url)
             if data.status_code != 200:
@@ -891,17 +971,26 @@ class TextureTagger:
                     file_path = os.path.join("staging", sanitized_filename)
                     with open(file_path, "wb") as file:
                         file.write(response.content)
-                    print(f"Downloaded: {file_path}")
+                    #print(f"Downloaded: {file_path}")
                 else:
                     print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
-            messagebox.showinfo("Success", f"Downloaded files for slot {self.selected_slot}.")
+            #messagebox.showinfo("Success", f"Downloaded files for slot {self.selected_slot}.")
 
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("Error", f"An error occurred while downloading: {e}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred during download: {e}")
 
-        cleaned_texture_path = texture_path.replace("_result", "")  
-        self.combine_textures(cleaned_texture_path)
+        finally:
+            # Remove the overlay and reset the cursor
+            self.overlay.destroy()
+            # Restore the cursor
+            self.root.config(cursor="")
+            self.root.update_idletasks()
+            cleaned_texture_path = texture_path.replace("_result", "")  
+            self.combine_textures(cleaned_texture_path)
+            
+            self.root.after_cancel(check_window_state)
+
 
     def extract_urls(self, json_data):
         """
@@ -956,16 +1045,16 @@ class TextureTagger:
 
         # Get the corresponding thumbnail name
         thumbnail_name = selected_thumbnails[slot_index].lower().replace(" ", "_")
-        print(f"Selected slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+        #print(f"Selected slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
 
         # Helper function to find a file containing a specific substring for the thumbnail
         def find_file(substring):
-            print(f"Looking for files in staging for thumbnail: {thumbnail_name} with substring: {substring}")
+            #print(f"Looking for files in staging for thumbnail: {thumbnail_name} with substring: {substring}")
 
             # Match files for the thumbnail name and the substring
             for filename in os.listdir(staging_dir):
                 if thumbnail_name in filename and substring in filename and filename.endswith(".png"):
-                    print(f"Found file: {filename} (matching {thumbnail_name} and {substring})")
+                    #print(f"Found file: {filename} (matching {thumbnail_name} and {substring})")
                     return os.path.join(staging_dir, filename)
 
             print(f"No file found for thumbnail '{thumbnail_name}' and substring '{substring}'")
@@ -1066,7 +1155,7 @@ class TextureTagger:
 
             # Remove the extension
             #label = os.path.splitext(label)[0]  # Remove the file extension
-            print(label)
+            #print(label)
             if os.path.exists(terrain_dump_path):
                 with open(terrain_dump_path, 'r') as file:
                     for line in file:
