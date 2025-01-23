@@ -156,7 +156,7 @@ class TextureTagger:
 
         # Create the download frame and add the button and progress bar
         self.download_frame = Frame(root)
-        self.download_frame.place(relx=0.9, rely=0.1, anchor="ne", x=-5)
+        self.download_frame.place(relx=0.9, rely=0.0, anchor="ne", x=-5, y=16)
 
         self.download_button = Button(self.download_frame, text="Download Texture", command=self.download_texture)
         self.download_button.grid(row=0, column=0, pady=10)
@@ -168,8 +168,35 @@ class TextureTagger:
         self.progress_bar = ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
         self.progress_bar.grid(row=2, column=0, pady=5)
 
+        # Add frame for slot buttons and preview
+        self.slot_frame = Frame(self.download_frame)
+        self.slot_frame.grid(row=3, column=0, pady=5)
 
-        
+        self.selected_slot = None
+        self.slot_buttons = {}
+
+        # Add buttons for A, B, C, D
+        slot_names = ["A", "B", "C", "D"]
+        for slot in range(4):
+            self.slot_frame.grid_columnconfigure(slot, weight=1)  # Ensure equal column widths
+            button = Button(
+                self.slot_frame,
+                text=slot_names[slot],
+                width=5,
+                command=lambda slot=slot_names[slot]: self.switch_slot(slot)
+            )
+
+            button.grid(row=4, column=slot, padx=1, sticky="we")  # "we" makes the button stretch horizontally
+            self.slot_buttons[slot_names[slot]] = button
+        for slot_name, button in self.slot_buttons.items():
+            button.grid_remove()  # Hide all buttons initially
+
+
+        # Add single preview area
+        self.preview_label = Label(self.slot_frame, text="No Preview", bg="gray")
+        self.preview_label.grid(row=5, column=0, pady=5, columnspan=4)  # Span across all columns for alignment
+
+
         # Create a frame for tags list and buttons
         self.tags_frame = Frame(root)
         self.tags_frame.pack()
@@ -296,6 +323,10 @@ class TextureTagger:
         self.next_thumbnails_button.grid(row=0, column=2, padx=10)
        
 
+    def switch_slot(self, slot_name):
+        self.selected_slot = slot_name
+        print(f"Switched to slot: {slot_name}")  # Debugging
+        self.update_selected_thumbnails_count()  # Update preview
 
     def center_window(self, width, height):
         # Get the screen width and height
@@ -310,19 +341,72 @@ class TextureTagger:
         self.root.geometry(f"{width}x{height}+{x}+{y}")
         
     def update_selected_thumbnails_count(self):
-        """Update the count of selected thumbnails for the current texture."""
+        """Update the count of selected thumbnails for the current texture and adjust slot buttons."""
         # Get the current texture path
         texture_path = self.filtered_texture_paths[self.current_index]
 
         # Retrieve selected thumbnails for the current texture
         selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        print(f"Selected thumbnails: {selected_thumbnails}")
+
+        # Set a default selected slot if none is set or out of range
+        if len(selected_thumbnails) > 0:
+            if not self.selected_slot or ord(self.selected_slot) - ord('A') >= len(selected_thumbnails):
+                self.selected_slot = 'A'  # Default to the first slot
+        else:
+            self.selected_slot = None  # Clear selected slot if no thumbnails are available
+
+        # Adjust the slot buttons based on the number of selected thumbnails
+        for index, (slot_name, button) in enumerate(self.slot_buttons.items()):
+            if index < len(selected_thumbnails):
+                # Show the button and update its text
+                button.config(text=slot_name, state="normal")
+                button.grid()  # Make sure it's visible
+
+                # Highlight the currently selected slot
+                if slot_name == self.selected_slot:
+                    button.config(bg="lightblue")  # Active color
+                else:
+                    button.config(bg="SystemButtonFace")  # Default color
+            else:
+                # Hide the button if there are no thumbnails for this slot
+                button.grid_remove()
+
+        # Update the preview for the currently selected slot
+        if self.selected_slot and selected_thumbnails:
+            # Map slot (A, B, C, D) to index
+            slot_index = ord(self.selected_slot) - ord('A')
+            if 0 <= slot_index < len(selected_thumbnails):
+                thumbnail_name = selected_thumbnails[slot_index]
+                normalized_name = thumbnail_name.lower().replace(" ", "_")
+                thumbnail_path = f"thumbnails\\{normalized_name}.png"
+                print(f"Slot: {self.selected_slot}, Thumbnail path: {thumbnail_path}")
+
+                # Load and display the thumbnail
+                if os.path.exists(thumbnail_path):
+                    try:
+                        image = Image.open(thumbnail_path)
+                        image.thumbnail((256, 256))  # Resize for display
+                        thumb_photo = ImageTk.PhotoImage(image)
+                        self.preview_label.config(image=thumb_photo, text="")
+                        self.preview_label.image = thumb_photo  # Prevent garbage collection
+                    except Exception as e:
+                        print(f"Error opening thumbnail: {e}")
+                else:
+                    print(f"Thumbnail path not found: {thumbnail_path}")
+            else:
+                print(f"No thumbnail for slot {self.selected_slot}")
+        else:
+            # Clear the preview if no slot or no thumbnails
+            self.preview_label.config(image=None, text="No Preview")
+            self.preview_label.image = None
 
         # Update the label
         count = len(selected_thumbnails)
         self.selected_thumbnails_label.config(text=f"Selected Thumbnails: {count}")
+
+
         self.update_counts()
-
-
 
     def display_thumbnails(self):
         """Display selectable thumbnails of textures from Polyhaven."""
