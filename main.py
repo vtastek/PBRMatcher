@@ -894,6 +894,25 @@ class TextureTagger:
 
 
         self.progress_bar.lift(self.overlay)
+
+        self.progress_bar["value"] = 0
+        self.progress_bar["maximum"] = 100  # Assume 100 steps for simplicity
+        self.actual_progress = 0  # Tracks the real progress of the task
+        self.smoothed_progress = 0  # Tracks the progress shown on the bar
+
+        # Smooth progress updater
+        def smooth_progress_update():
+            # If the smoothed progress is less than the actual progress, catch up gradually
+            if self.smoothed_progress < self.actual_progress:
+                self.smoothed_progress += (self.actual_progress - self.smoothed_progress) * 0.1
+                self.progress_bar["value"] = min(self.smoothed_progress, 100)
+            
+            # Continue updating as long as we're not at maximum progress
+            if self.smoothed_progress < 100:
+                self.root.after(50, smooth_progress_update)
+
+        # Start the smooth progress updater
+        smooth_progress_update()
         
         # Capture clicks
         self.overlay.bind("<Button-1>", lambda e: None)
@@ -961,8 +980,9 @@ class TextureTagger:
             # Download files
             for idx, texture_url in enumerate(filtered_urls):
                 # Update the progress bar
-                self.progress_bar["value"] = idx + 1
-                self.root.update_idletasks()
+                
+                self.actual_progress = idx + 1  # Update the actual progress
+                #self.root.update_idletasks()
 
                 # Sanitize the URL to create a valid filename
                 sanitized_filename = self.sanitize_filename(texture_url)
