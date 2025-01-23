@@ -847,24 +847,7 @@ class TextureTagger:
 
         return matching_textures
 
-    def download_texture(self):
-        """Start the download process in a separate thread."""
-        # Check if a slot is selected
-        if not self.selected_slot:
-            messagebox.showerror("Error", "No slot selected for download.")
-            return
-
-        # Change the cursor to busy
-        self.root.config(cursor="wait")
-        # Add an overlay and prevent user interactions
-        self.overlay = Frame(self.root, bg="")
-        self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
-
-        self.overlay_active = True  # Track the state of the overlay
-        
-        self.last_window_state = self.root.state()  # Store the initial state
-
-        def check_window_state():
+    def check_window_state(self):
             """Check the current window state and handle minimize/restore."""
             current_state = self.root.state()
             if current_state != self.last_window_state:
@@ -885,10 +868,29 @@ class TextureTagger:
                 self.last_window_state = current_state
 
             # Check again after a short delay
-            self.root.after(100, check_window_state)
+            self.root.after(100, self.check_window_state)
+
+    def download_texture(self):
+        """Start the download process in a separate thread."""
+        # Check if a slot is selected
+        if not self.selected_slot:
+            messagebox.showerror("Error", "No slot selected for download.")
+            return
+
+        # Change the cursor to busy
+        self.root.config(cursor="wait")
+        # Add an overlay and prevent user interactions
+        self.overlay = Frame(self.root, bg="")
+        self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        self.overlay_active = True  # Track the state of the overlay
+        
+        self.last_window_state = self.root.state()  # Store the initial state
+
+        
 
         # Start monitoring window state
-        self.root.after(100, check_window_state)
+        self.root.after(100, self.check_window_state)
 
 
         self.progress_bar.lift(self.overlay)
@@ -989,7 +991,7 @@ class TextureTagger:
             cleaned_texture_path = texture_path.replace("_result", "")  
             self.combine_textures(cleaned_texture_path)
             
-            self.root.after_cancel(check_window_state)
+            self.root.after_cancel(self.check_window_state)
 
 
     def extract_urls(self, json_data):
