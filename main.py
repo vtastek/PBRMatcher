@@ -820,97 +820,87 @@ class TextureTagger:
         return matching_textures
 
     def download_texture(self):
+        """Download the texture files for the currently selected slot."""
         # Get the current texture path using the current index
         texture_path = self.filtered_texture_paths[self.current_index]
 
         # Retrieve selected thumbnails for the current texture from the database
-        download_list = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
 
-        # Check if there are any thumbnails
-        if not download_list:
-            print(f"No selected thumbnails for texture: {texture_path}")
-            messagebox.showerror("Error", f"No selected thumbnails for texture: {texture_path}")
+        # Check if there is a selected slot and if it is valid
+        if not self.selected_slot:
+            print("No slot selected.")
+            messagebox.showerror("Error", "No slot selected.")
             return
 
-        #print(f"Selected thumbnails for {texture_path}: {download_list}")
+        # Map the selected slot to the index
+        slot_index = ord(self.selected_slot) - ord('A')
+        if slot_index < 0 or slot_index >= len(selected_thumbnails):
+            print(f"Invalid slot index: {slot_index}")
+            messagebox.showerror("Error", "Invalid slot selection.")
+            return
+
+        # Get the specific thumbnail for the selected slot
+        thumbnail_name = selected_thumbnails[slot_index]
+        print(f"Downloading for slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+
+        # Construct the download URL
+        texture_id = thumbnail_name.replace(" ", "_").lower()
+        url = f"https://api.polyhaven.com/files/{texture_id}"
 
         # Create the "staging" folder if it doesn't exist
         if not os.path.exists("staging"):
             os.makedirs("staging")
 
-        # Prepare a list to store all URLs from the download list
-        all_urls = []
+        try:
+            # Fetch texture metadata
+            data = requests.get(url)
+            if data.status_code != 200:
+                messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
+                return
 
-        # Loop through each item in the download list and extract the URLs
-        for texture_id in download_list:
-            # Replace spaces with underscores and turn to lowercase
-            texture_id = texture_id.replace(" ", "_").lower()
+            # Extract URLs for downloading texture files
+            texture_urls = self.extract_urls(data.json())
 
-            # Construct the URL for downloading the texture
-            url = f"https://api.polyhaven.com/files/{texture_id}"
+            # Filter URLs to include only "_4k.png" files, excluding "_gl_"
+            filtered_urls = [
+                texture_url for texture_url in texture_urls
+                if texture_url.endswith("_4k.png") and "_gl_" not in texture_url
+            ]
 
-            try:
-                # Make the GET request to fetch texture metadata
-                data = requests.get(url)
+            # Check if there are files to download
+            if not filtered_urls:
+                messagebox.showerror("Error", f"No valid files to download for '{thumbnail_name}'.")
+                return
 
-                # Check if the request was successful
-                if data.status_code == 200:
-                    #messagebox.showinfo("Success", f"Texture '{texture_id}' exists!")
-                    print("success")
-                else:
-                    messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
-                    continue
+            # Set the progress bar maximum value
+            self.progress_bar["maximum"] = len(filtered_urls)
 
-                # Extract all URLs under $map from the metadata response
-                texture_urls = self.extract_urls(data.json())
+            # Download files
+            for idx, texture_url in enumerate(filtered_urls):
+                # Update the progress bar
+                self.progress_bar["value"] = idx + 1
+                self.root.update_idletasks()
 
-                # Filter texture_urls to include only those ending with "_4k.png" and excluding "_gl_"
-                filtered_urls = [
-                    texture_url for texture_url in texture_urls
-                    if texture_url.endswith("_4k.png") and "_gl_" not in texture_url
-                ]
+                # Sanitize the URL to create a valid filename
+                sanitized_filename = self.sanitize_filename(texture_url)
 
-                # Add filtered URLs to the list
-                all_urls.extend(filtered_urls)
-
-            except requests.exceptions.RequestException as e:
-                messagebox.showerror("Error", f"An error occurred while fetching metadata for texture '{texture_id}': {e}")
-
-        # If no valid URLs were found, show an error and return
-        if not all_urls:
-            messagebox.showerror("Error", "No valid URLs found for selected textures.")
-            return
-
-        # Set the progress bar maximum value to the number of valid URLs
-        self.progress_bar["maximum"] = len(all_urls)
-
-        # Loop through the filtered URLs and download each texture
-        for idx, texture_url in enumerate(all_urls):
-            # Update the progress bar for each texture download
-            self.progress_bar["value"] = idx + 1  # Update progress bar to current texture
-            self.root.update_idletasks()  # Refresh the GUI to reflect progress
-
-            # Sanitize the URL to create a valid filename
-            sanitized_filename = self.sanitize_filename(texture_url)
-
-            try:
-                # Make the GET request to download the texture file
+                # Download the texture
                 response = requests.get(texture_url)
-
-                # Check if the request was successful
                 if response.status_code == 200:
-                    # Save the texture's data to the "staging" folder using the sanitized filename
                     file_path = os.path.join("staging", sanitized_filename)
                     with open(file_path, "wb") as file:
                         file.write(response.content)
-                    #messagebox.showinfo("Success", f"Texture downloaded successfully to 'staging' folder!")
+                    print(f"Downloaded: {file_path}")
                 else:
-                    messagebox.showerror("Error", f"Failed to download texture. Status code: {response.status_code}")
-            except requests.exceptions.RequestException as e:
-                messagebox.showerror("Error", f"An error occurred while downloading texture: {e}")
+                    print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
-         # Remove '_result' from the texture path
-        cleaned_texture_path = texture_path.replace("_result", "")    
+            messagebox.showinfo("Success", f"Downloaded files for slot {self.selected_slot}.")
+
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Error", f"An error occurred while downloading: {e}")
+
+        cleaned_texture_path = texture_path.replace("_result", "")  
         self.combine_textures(cleaned_texture_path)
 
     def extract_urls(self, json_data):
@@ -947,11 +937,38 @@ class TextureTagger:
     def combine_textures(self, texture_name_label):
         staging_dir = "staging"
 
-        # Helper function to find a file containing a specific substring
+        # Check if there is a selected slot
+        if not self.selected_slot:
+            print("No slot selected for combining textures.")
+            messagebox.showerror("Error", "No slot selected for combining textures.")
+            return
+
+        # Get the thumbnail name for the selected slot
+        texture_path = self.filtered_texture_paths[self.current_index]
+        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        slot_index = ord(self.selected_slot) - ord('A')
+
+        # Validate slot index
+        if slot_index < 0 or slot_index >= len(selected_thumbnails):
+            print(f"Invalid slot index: {slot_index}")
+            messagebox.showerror("Error", f"Invalid slot index for slot {self.selected_slot}.")
+            return
+
+        # Get the corresponding thumbnail name
+        thumbnail_name = selected_thumbnails[slot_index].lower().replace(" ", "_")
+        print(f"Selected slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+
+        # Helper function to find a file containing a specific substring for the thumbnail
         def find_file(substring):
+            print(f"Looking for files in staging for thumbnail: {thumbnail_name} with substring: {substring}")
+
+            # Match files for the thumbnail name and the substring
             for filename in os.listdir(staging_dir):
-                if substring in filename and filename.endswith(".png"):
+                if thumbnail_name in filename and substring in filename and filename.endswith(".png"):
+                    print(f"Found file: {filename} (matching {thumbnail_name} and {substring})")
                     return os.path.join(staging_dir, filename)
+
+            print(f"No file found for thumbnail '{thumbnail_name}' and substring '{substring}'")
             return None
 
         # Helper function to load an image
