@@ -14,9 +14,6 @@ from tkinter import messagebox, ttk
 from PIL import Image, ImageTk
 from urllib.parse import urlparse
 
-
-
-
 # Initialize or load JSON database
 DB_FILE = "db.json"
 
@@ -38,6 +35,8 @@ def save_database(db):
         json.dump(db, f, indent=4)
 
 CACHE_FILE = "api_cache.json"
+
+TARGET_FOLDER = "staging/textures/"  # Replace with the actual folder path
 
 def load_api_cache():
     if os.path.exists(CACHE_FILE):
@@ -147,6 +146,8 @@ class TextureTagger:
         # GUI Elements
         self.texture_name_label = Label(self.main, text="", font=("Arial", 7), pady=10)
         self.texture_name_label.pack()
+        self.default_bg = self.texture_name_label.cget("bg")  # Get the current default background
+
 
         self.label_frame = Frame(self.main, bg="black")
         self.label_frame.pack()
@@ -168,17 +169,29 @@ class TextureTagger:
 
         self.download_frame.place(relx=relscale, rely=0.0, anchor="ne", y=offset)
 
-        self.download_button = Button(self.download_frame, text="Download Texture", command=self.download_texture)
-        self.download_button.grid(row=0, column=0, pady=10)
+        #self.download_button = Button(self.download_frame, text="Download Texture", command=self.download_texture)
+        #self.download_button.grid(row=0, column=0, pady=10)
+
+        # Add "Add to Queue" button
+        self.add_to_queue_button = Button(self.download_frame, text="Add to Queue", command=self.add_to_queue)
+        self.add_to_queue_button.grid(row=0, column=0, pady=10)
+
+        # Add "Show Queue" button
+        self.show_queue_button = Button(self.download_frame, text="Show Queue", command=self.show_queue)
+        self.show_queue_button.grid(row=0, column=0, pady=10, sticky="E")
 
         # Add a Progressbar widget to the GUI
-        self.progress_label = ttk.Label(self.download_frame, text="Downloading Textures...")
+        self.progress_label = ttk.Label(self.download_frame, text="Completed: 0, In Progress: 0, Pending: 0")
         self.progress_label.grid(row=1, column=0, pady=10)
 
         self.progress_bar_dummy= ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
         self.progress_bar_dummy.grid(row=2, column=0, pady=5)
 
-      
+        # Queue and Progress Tracking
+        self.completed_downloads = []  # To track items in the queue
+        self.in_progress = []  # To track items in the queue
+        self.download_queue = []  # To track items in the queue
+        self.currently_downloading = False  # To track if a download is in progress
         
         # Add frame for slot buttons and preview
         self.slot_frame = Frame(self.download_frame)
@@ -408,6 +421,7 @@ class TextureTagger:
             slot_index = ord(self.selected_slot) - ord('A')
             if 0 <= slot_index < len(selected_thumbnails):
                 thumbnail_name = selected_thumbnails[slot_index]
+                thumbnail_name = self.get_key_by_name(self.all_assets, thumbnail_name)
                 normalized_name = thumbnail_name.lower().replace(" ", "_")
                 thumbnail_path = f"thumbnails\\{normalized_name}.png"
                 #print(f"Slot: {self.selected_slot}, Thumbnail path: {thumbnail_path}")
@@ -673,6 +687,18 @@ class TextureTagger:
             if path not in self.db["textures"]:
                 return i
         return len(self.filtered_texture_paths)
+    
+    def update_texture_label(self, texture_name):
+        """Change background color if the file exists."""
+
+        # Construct the file path
+        file_path = os.path.join(TARGET_FOLDER, texture_name)
+
+        # Check if the file exists and update the background color
+        if os.path.isfile(file_path):
+            self.texture_name_label.config(bg="green")  # Set background to green
+        else:
+            self.texture_name_label.config(bg=self.default_bg)  # Reset background to default (None)
 
     def display_texture(self):
         # Get the current texture path
@@ -681,6 +707,10 @@ class TextureTagger:
         # Update the texture name label
         texture_name = os.path.basename(texture_path)
         self.texture_name_label.config(text=f"Texture: {texture_name}")
+
+        texture_name_result = texture_name.replace("_result", "")
+       
+        self.update_texture_label(texture_name_result)
 
         #print(f"DEBUG: Filtered texture paths: {self.filtered_texture_paths}")
         #print(f"DEBUG: Current index: {self.current_index}")
@@ -862,129 +892,212 @@ class TextureTagger:
             if any(tag in texture.get("tags", []) for tag in current_tags)
         ]
 
-
         return matching_textures
 
-    def check_window_state(self):
-            """Check the current window state and handle minimize/restore."""
-            current_state = self.root.state()
-            if current_state != self.last_window_state:
-                if current_state == "iconic":  # Minimized
-                    #print("minimized")
-                    if hasattr(self, 'overlay') and self.overlay_active:
-                        self.overlay.place_forget()
-                        self.overlay_active = False
-                elif current_state == "normal":  # Restored
-                    #print("restored")
-                    if hasattr(self, 'overlay') and not self.overlay_active:
-                        self.root.after_idle(
-                            lambda: self.root.after(100, lambda: self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1))
-                        )
-                        self.overlay_active = True
+    
 
-                # Update the last known state
-                self.last_window_state = current_state
-
-            # Check again after a short delay
-            self.root.after(100, self.check_window_state)
-
-    def download_texture(self):
-        """Start the download process in a separate thread."""
-        # Check if a slot is selected
+    def add_to_queue(self):
+        """Add the selected thumbnail and texture label to the download queue."""
         if not self.selected_slot:
             messagebox.showerror("Error", "No slot selected for download.")
             return
 
-        # Change the cursor to busy
-        self.root.config(cursor="wait")
-        # Add an overlay and prevent user interactions
-        self.overlay = Frame(self.root, bg="")
-        self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        # Get the current texture and thumbnail
+        current_texture = self.filtered_texture_paths[self.current_index]
+        selected_thumbnails = self.db["textures"].get(current_texture, {}).get("selected_thumbnails", [])
 
-        self.overlay_active = True  # Track the state of the overlay
+        # Determine the thumbnail name based on the selected slot
+        slot_index = ord(self.selected_slot) - ord('A')
+        if slot_index < 0 or slot_index >= len(selected_thumbnails):
+            messagebox.showerror("Error", f"No thumbnail found for slot {self.selected_slot}.")
+            return
+
+        thumbnail_name = selected_thumbnails[slot_index]
+        texture_name_label = os.path.basename(current_texture).replace(".png", "")
+
+        # Add to the queue
+        self.download_queue.append((current_texture, thumbnail_name, texture_name_label))
+        #print(f"[DEBUG] Added to queue: path: {current_texture}, Texture: {texture_name_label}, Thumbnail: {thumbnail_name}")
+        #print(f"[DEBUG] Current Queue Length: {len(self.download_queue)}")
+
+        # Start processing the queue if idle
+        if not self.currently_downloading:
+            self.process_queue()
+
+        self.update_progress_label()
+
+
+
+    def show_queue(self):
+        """Display the current download queue with progress states and debug information."""
+        # Ensure completed_downloads, in_progress, and pending exist
+        if not hasattr(self, "completed_downloads"):
+            self.completed_downloads = []
+        if not hasattr(self, "in_progress"):
+            self.in_progress = []
         
-        self.last_window_state = self.root.state()  # Store the initial state
+        # Debugging information
+        total_completed = len(self.completed_downloads)
+        total_in_progress = len(self.in_progress)
+        total_pending = len(self.download_queue)
+        total_items = total_completed + total_in_progress + total_pending
 
+        # Build the queue display
+        queue_text = f"Total Items: {total_items} (Completed: {total_completed}, In Progress: {total_in_progress}, Pending: {total_pending})\n\n"
+
+        # Add completed downloads
+        queue_text += "Completed:\n"
+        if total_completed > 0:
+            for texture_path, thumbnail_name, texture_name_label in self.completed_downloads:
+                queue_text += f"  - Texture: {texture_name_label}, Thumbnail: {thumbnail_name} [finished]\n"
+        else:
+            queue_text += "  None\n"
+
+        # Add in-progress item
+        queue_text += "\nIn Progress:\n"
+        if total_in_progress > 0:
+            for texture_path, thumbnail_name, texture_name_label in self.in_progress:
+                queue_text += f"  - Texture: {texture_name_label}, Thumbnail: {thumbnail_name} [in progress]\n"
+        else:
+            queue_text += "  None\n"
+
+        # Add pending items
+        queue_text += "\nPending:\n"
+        if total_pending > 0:
+            for texture_path, thumbnail_name, texture_name_label in self.download_queue:
+                queue_text += f"  - Texture: {texture_name_label}, Thumbnail: {thumbnail_name}\n"
+        else:
+            queue_text += "  None\n"
+
+        # Debugging output
+        #print("[DEBUG] Completed Downloads:", self.completed_downloads)
+        #print("[DEBUG] In Progress:", self.in_progress)
+        #print("[DEBUG] Pending Downloads:", self.download_queue)
+        #print(f"[DEBUG] Current Queue Length: {len(self.download_queue)}")
+        #print("[DEBUG] Queue Text:", queue_text)
+
+        # Display the queue in a message box
+        messagebox.showinfo("Download Queue", queue_text)
+
+    def update_progress_label(self):
+        """Update the progress label with the current counts of completed, in-progress, and pending downloads."""
+        completed_count = len(self.completed_downloads)
+        in_progress_count = len(self.in_progress)
+        pending_count = len(self.download_queue)
         
+        self.progress_label.config(
+            text=f"Completed: {completed_count}, In Progress: {in_progress_count}, Pending: {pending_count}"
+        )
 
-        # Start monitoring window state
-        self.root.after(100, self.check_window_state)
+    def process_queue(self):
+        """Start processing the download queue."""
+        if not self.download_queue:
+            self.currently_downloading = False  # No more items in the queue
+            messagebox.showinfo("Queue", "All downloads completed.")
+            return
+
+        # Get the next item from the queue and remove it
+        next_item = self.download_queue.pop(0)
+        next_texture, next_thumbnail, next_texture_name_label = next_item
+
+        #print("DEBUGVVVVV", next_texture)
+
+        # Move this item to 'in progress'
+        self.in_progress.append(next_item)
+
+        # Start the download for this texture, thumbnail, and texture name label
+        self.currently_downloading = True
+
+        self.update_progress_label()  # Update after moving item to in-progress
+
+        self.download_texture(next_texture, next_thumbnail, next_texture_name_label)
+        #print("[DEBUG] texture:", next_texture)
+        #print("[DEBUG] thumbnail:", next_thumbnail)
+        #print("[DEBUG] name label:", next_texture_name_label)
+
+        # Debugging output for current queue state
+        #print("[DEBUG] Completed Downloads:", self.completed_downloads)
+        #print("[DEBUG] In Progress:", self.in_progress)
+        #print("[DEBUG] Pending Downloads:", self.download_queue)
 
 
-        self.progress_bar.lift(self.overlay)
 
+
+    def download_texture(self, texture_path, thumbnail_name, texture_name_label):
+        """Start the download process for a specific texture, thumbnail, and label."""
         self.progress_bar["value"] = 0
         self.progress_bar["maximum"] = 100  # Assume 100 steps for simplicity
-        self.actual_progress = 0  # Tracks the real progress of the task
-        self.smoothed_progress = 0  # Tracks the progress shown on the bar
 
-        # Smooth progress updater
+        # Reset progress tracking
+        self.actual_progress = 0
+        self.smoothed_progress = 0
+
         def smooth_progress_update():
-            # If the smoothed progress is less than the actual progress, catch up gradually
+            """Gradually update the progress bar."""
             if self.smoothed_progress < self.actual_progress:
-                self.smoothed_progress += (self.actual_progress - self.smoothed_progress) * 0.01
+                self.smoothed_progress += (self.actual_progress - self.smoothed_progress) * 0.1
                 self.progress_bar["value"] = min(self.smoothed_progress, 100)
-            
-            # Continue updating as long as we're not at maximum progress
             if self.smoothed_progress < 100:
                 self.root.after(50, smooth_progress_update)
 
-        # Start the smooth progress updater
+        # Start smooth progress update
         smooth_progress_update()
-        
-        # Capture clicks
-        self.overlay.bind("<Button-1>", lambda e: None)
 
-        #self.root.update_idletasks()
-    
         # Start the download in a separate thread
-        download_thread = threading.Thread(target=self._perform_download, daemon=True)
+        download_thread = threading.Thread(
+            target=self._perform_download, args=(texture_path, thumbnail_name, texture_name_label), daemon=True
+        )
         download_thread.start()
 
-    
-    def _perform_download(self):
-        """Perform the actual download process (runs in a separate thread)."""
-        
 
+    def get_key_by_name(self, dictionary, target_name):
+        for key, value in dictionary.items():
+            if value.get("name") == target_name:  # Check if the 'name' matches the target
+                return key
+        return None  # Return None if no match is found
+   
+    def _perform_download(self, texture_path, thumbnail_name, texture_name_label):
+        """Perform the actual download process for a specific texture and thumbnail."""
         try:
-            # Get the current texture path using the current index
-            texture_path = self.filtered_texture_paths[self.current_index]
+            
+            # Normalize thumbnail name for use in URLs
+            #thumbnail_name_url = self.get_key_by_name(self.all_assets, thumbnail_name)
 
-            # Retrieve selected thumbnails for the current texture from the database
-            selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
-            slot_index = ord(self.selected_slot) - ord('A')
+            #thumbnail_name_url = thumbnail_name.lower().replace(" ", "_")
+            #thumbnail_name = thumbnail_name.lower().replace(" ", "_")
+            texture_id = thumbnail_name
 
-            # Validate slot index
-            if slot_index < 0 or slot_index >= len(selected_thumbnails):
-                print(f"Invalid slot index: {slot_index}")
-                messagebox.showerror("Error", f"Invalid slot index for slot {self.selected_slot}.")
-                return
+            texture_id_download = self.get_key_by_name(self.all_assets, thumbnail_name)
 
-            # Get the specific thumbnail name for the selected slot
-            thumbnail_name = selected_thumbnails[slot_index].lower().replace(" ", "_")
-            #print(f"Downloading for slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+            texture_path = os.path.normpath(texture_path.strip())
+            texture_name_label = texture_name_label.strip()
+            #thumbnail_name = thumbnail_name.strip()
 
             # Construct the download URL
-            texture_id = thumbnail_name
-            url = f"https://api.polyhaven.com/files/{texture_id}"
+            url = f"https://api.polyhaven.com/files/{texture_id_download}"
 
             # Create the "staging" folder if it doesn't exist
             if not os.path.exists("staging"):
                 os.makedirs("staging")
 
+            #print(thumbnail_name)
+            
             # Fetch texture metadata
             data = requests.get(url)
             if data.status_code != 200:
                 messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
                 return
+            
+      
 
             # Extract URLs for downloading texture files
             texture_urls = self.extract_urls(data.json())
 
-            # Filter URLs to include only "_4k.png" files, excluding "_gl_"
+            # Filter URLs to include only "_4k.png" files, excluding unnecessary files
             filtered_urls = [
                 texture_url for texture_url in texture_urls
-                if texture_url.endswith("_4k.png") and "_gl_" not in texture_url and "_spec_" not in texture_url and "_bump_" not in texture_url and "_mask_" not in texture_url and "_ao_" not in texture_url and "_rough_" not in texture_url
+                if texture_url.endswith("_1k.png") and "_gl_" not in texture_url and "_spec_" not in texture_url and
+                "_bump_" not in texture_url and "_mask_" not in texture_url and "_ao_" not in texture_url and "_rough_" not in texture_url
             ]
 
             # Check if there are files to download
@@ -998,9 +1111,7 @@ class TextureTagger:
             # Download files
             for idx, texture_url in enumerate(filtered_urls):
                 # Update the progress bar
-                
-                self.actual_progress = idx + 1  # Update the actual progress
-                #self.root.update_idletasks()
+                self.actual_progress = idx + 1
 
                 # Sanitize the URL to create a valid filename
                 sanitized_filename = self.sanitize_filename(texture_url)
@@ -1011,28 +1122,53 @@ class TextureTagger:
                     file_path = os.path.join("staging", sanitized_filename)
                     with open(file_path, "wb") as file:
                         file.write(response.content)
-                    #print(f"Downloaded: {file_path}")
                 else:
                     print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
-            cleaned_texture_path = texture_path.replace("_result", "")  
-            self.combine_textures(cleaned_texture_path)
-
-            #messagebox.showinfo("Success", f"Downloaded files for slot {self.selected_slot}.")
+            # Combine the downloaded textures
+            self.combine_textures(texture_path, thumbnail_name, texture_name_label)
 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during download: {e}")
 
         finally:
-            # Remove the overlay and reset the cursor
-            self.overlay.destroy()
-            # Restore the cursor
-            self.root.config(cursor="")
-            self.root.update_idletasks()
-            
-            
-            self.root.after_cancel(self.check_window_state)
+            try:
+                # Update the progress label
+                self.update_progress_label()
+                # Debug: Check tuple being removed
+                normalized_tuple = (texture_path, thumbnail_name, texture_name_label)
+                #print("[DEBUG] Trying to remove (normalized):", repr(normalized_tuple))
 
+                # Debug: Print in-progress list
+                #print("[DEBUG] Full In Progress List (normalized):", [repr((os.path.normpath(item[0]), item[1].strip(), item[2].strip())) for item in self.in_progress])
+
+                # Remove from in-progress and add to completed
+                if normalized_tuple in self.in_progress:
+                    self.in_progress.remove(normalized_tuple)
+                    #print("[DEBUG] Successfully removed:", repr(normalized_tuple))
+                else:
+                    print("[DEBUG] Item not found in in_progress for removal:", repr(normalized_tuple))
+
+                self.completed_downloads.append(normalized_tuple)
+                #print("[DEBUG] Added to completed_downloads:", repr(normalized_tuple))
+            except Exception as e:
+                print(f"[DEBUG] Error during in_progress removal or completion update: {e}")
+            
+            # Check if there are more items in the queue
+            if self.download_queue:
+                # Process the next item in the queue
+                self.process_queue()
+            else:
+                self.currently_downloading = False
+                messagebox.showinfo("Queue", "All downloads completed.")
+
+            # Debugging output
+            #"[DEBUG] Completed Downloads:", self.completed_downloads)
+            #print("[DEBUG] In Progress:", self.in_progress)
+            #print("[DEBUG] Pending Downloads:", self.download_queue)
+
+            # Ensure the UI is updated
+            self.root.update_idletasks()
 
     def extract_urls(self, json_data):
         """
@@ -1125,44 +1261,33 @@ class TextureTagger:
         
         return texture
 
-    def combine_textures(self, texture_name_label):
+    def combine_textures(self, texture_path, thumbnail_name, texture_name_label):
         staging_dir = "staging"
 
+        texture_name_label = f"textures\\{texture_name_label}"
+        texture_name_label = texture_name_label.lower().replace("_result", "")
+
         # Check if there is a selected slot
-        if not self.selected_slot:
-            print("No slot selected for combining textures.")
-            messagebox.showerror("Error", "No slot selected for combining textures.")
-            return
+        thumbnail_name = self.get_key_by_name(self.all_assets, thumbnail_name)
 
-        # Get the thumbnail name for the selected slot
-        texture_path = self.filtered_texture_paths[self.current_index]
-        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
-        slot_index = ord(self.selected_slot) - ord('A')
+        down_thumbnail_name = thumbnail_name.lower().replace(" ", "_")  # Normalize thumbnail name
 
-        # Validate slot index
-        if slot_index < 0 or slot_index >= len(selected_thumbnails):
-            print(f"Invalid slot index: {slot_index}")
-            messagebox.showerror("Error", f"Invalid slot index for slot {self.selected_slot}.")
-            return
-
-        # Get the corresponding thumbnail name
-        thumbnail_name = selected_thumbnails[slot_index].lower().replace(" ", "_")
-        #print(f"Selected slot: {self.selected_slot}, Thumbnail: {thumbnail_name}")
+        #print(f"Selected slot: {self.selected_slot}, Thumbnail: {down_thumbnail_name}")
 
         # Helper function to find a file containing a specific substring for the thumbnail
         def find_file(substring):
-            #print(f"Looking for files in staging for thumbnail: {thumbnail_name} with substring: {substring}")
+            #print(f"Looking for files in staging for thumbnail: {down_thumbnail_name} with substring: {substring}")
 
             
 
             # Match files for the thumbnail name and the substring
             for filename in os.listdir(staging_dir):
                 filename_casefold = filename.casefold()  # Normalize to casefold for comparison
-                if thumbnail_name in filename_casefold and substring in filename_casefold and filename_casefold.endswith(".png"):
-                    #print(f"Found file: {filename} (matching {thumbnail_name} and {substring})")
+                if down_thumbnail_name in filename_casefold and substring in filename_casefold and filename_casefold.endswith(".png"):
+                    #print(f"Found file: {filename} (matching {down_thumbnail_name} and {substring})")
                     return os.path.join(staging_dir, filename_casefold)
 
-            print(f"No file found for thumbnail '{thumbnail_name}' and substring '{substring}'")
+            print(f"No file found for thumbnail '{down_thumbnail_name}' and substring '{substring}'")
             return None
 
         # Helper function to load an image
@@ -1234,7 +1359,7 @@ class TextureTagger:
             param_output_path = os.path.join(staging_dir, f"{texture_name_label}_param.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(param_output_path, param_texture)
-            print(f"Saved {param_output_path}")
+            print(f"Saved param {param_output_path}")
 
         # Create the second texture: {texture_name_label}_nh.png
         nor_texture = load_image(nor_file)
@@ -1265,8 +1390,7 @@ class TextureTagger:
             nh_output_path = os.path.join(staging_dir, f"{texture_name_label}_nh.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(nh_output_path, nh_texture)
-            print(f"Saved {nh_output_path}")
-
+            print(f"Saved nh {nh_output_path}")
 
 
         # Create the third texture: {texture_name_label}.png
@@ -1278,7 +1402,7 @@ class TextureTagger:
             diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
             os.makedirs(staging_dir, exist_ok=True)
             success = cv2.imwrite(diff_output_path, diff_texture)
-            print(f"Saved {diff_output_path}")
+            print(f"Saved diff {diff_output_path}")
 
             if not success:
                 print(f"Failed to write the texture to {diff_output_path}")
@@ -1305,7 +1429,6 @@ class TextureTagger:
                             return True
             return False
 
-        #print(texture_name_label)
         if diff_texture is not None and arm_texture is not None and is_ltex_record(texture_name_label):
             
             d_red_channel = diff_texture[:, :, 0]  # Red channel
@@ -1333,10 +1456,9 @@ class TextureTagger:
             diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(diffparam_output_path, diffparam_texture)
-            print(f"Saved {diffparam_output_path}")
+            print(f"Saved diffparam {diffparam_output_path}")
 
-        messagebox.showinfo("Successfully created PARAM AND NORM textures for ", f"Texture '{texture_name_label}")
-
+        #messagebox.showinfo("Successfully created PARAM AND NORM textures for ", f"Texture '{texture_name_label}")
 
 
 # Main
