@@ -8,6 +8,7 @@ import time
 import re
 import cv2
 import numpy as np
+import locale
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
 from tkinter import messagebox, ttk
 from PIL import Image, ImageTk
@@ -108,6 +109,7 @@ def fetch_thumbnail(thumbnail_url):
 # GUI
 class TextureTagger:
     def __init__(self, root, db):
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
         self.root = root
         self.root.title("Morrowind PBR Texture Project")
         self.db = db
@@ -426,7 +428,7 @@ class TextureTagger:
                 print(f"No thumbnail for slot {self.selected_slot}")
         else:
             # Clear the preview if no slot or no thumbnails
-            self.preview_label.config(image=None, text="No Preview")
+            self.preview_label.config(image='', text="No Preview")
             self.preview_label.image = None
 
         # Update the label
@@ -584,27 +586,37 @@ class TextureTagger:
 
 
     def update_counts(self):
-        """Update the counts for each button and label, including 'assigned'."""
+        """Update the counts for each button and label, including 'assigned', handling case differences."""
         counts = {key: {"tagged": 0, "untagged": 0, "assigned": 0} for key in self.button_info}
+
+        #print(f"DEBUG: button_info keys: {list(self.button_info.keys())}")
 
         for path in self.texture_paths:
             tags = self.db["textures"].get(path, {}).get("tags", [])
             selected_thumbnails = self.db["textures"].get(path, {}).get("selected_thumbnails", [])
+            filename_casefold = os.path.basename(path).casefold()  # Normalize to casefold for comparison
+
+
             for key in self.button_info:
-                if os.path.basename(path).startswith(key):
+                key_casefold = key.casefold()  # Normalize key with casefold
+
+
+                if filename_casefold.startswith(key_casefold):
+                    #print(f"DEBUG: Match found - Filename: '{filename_casefold}' matches Key: '{key_casefold}' in ' {key} ")
+
                     if tags:
                         counts[key]["tagged"] += 1
                     else:
                         counts[key]["untagged"] += 1
 
-                    if selected_thumbnails:  # Check if there are selected thumbnails
+                    if selected_thumbnails:
                         counts[key]["assigned"] += 1
-                        #print("assignedcounted")
 
+        # Update counts on labels
         for key, count in counts.items():
             self.label_frames[f"{key}_tagged"].config(text=str(count["tagged"]))
             self.label_frames[f"{key}_untagged"].config(text=str(count["untagged"]))
-            
+
             # Update the 'assigned' label dynamically
             if f"{key}_assigned" in self.label_frames:
                 self.label_frames[f"{key}_assigned"].config(text=str(count["assigned"]))
@@ -612,23 +624,22 @@ class TextureTagger:
         # Misc counts
         misc_tagged = sum(
             1 for path in self.texture_paths
-            if not any(os.path.basename(path).startswith(key) for key in self.button_info)
+            if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
             and self.db["textures"].get(path, {}).get("tags")
         )
         misc_untagged = sum(
             1 for path in self.texture_paths
-            if not any(os.path.basename(path).startswith(key) for key in self.button_info)
+            if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
             and not self.db["textures"].get(path, {}).get("tags")
         )
         misc_assigned = sum(
             1 for path in self.texture_paths
-            if not any(os.path.basename(path).startswith(key) for key in self.button_info)
+            if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
             and self.db["textures"].get(path, {}).get("selected_thumbnails", [])
         )
 
         self.misc_label_tagged.config(text=str(misc_tagged))
         self.misc_label_untagged.config(text=str(misc_untagged))
-        # Add 'assigned' count for misc
         if hasattr(self, "misc_label_assigned"):
             self.misc_label_assigned.config(text=str(misc_assigned))
 
@@ -646,6 +657,8 @@ class TextureTagger:
         self.all_label_untagged.config(text=str(all_untagged))
         if hasattr(self, "all_label_assigned"):
             self.all_label_assigned.config(text=str(all_assigned))
+
+
 
     def get_texture_paths(self):
         paths = []
@@ -668,6 +681,9 @@ class TextureTagger:
         # Update the texture name label
         texture_name = os.path.basename(texture_path)
         self.texture_name_label.config(text=f"Texture: {texture_name}")
+
+        #print(f"DEBUG: Filtered texture paths: {self.filtered_texture_paths}")
+        #print(f"DEBUG: Current index: {self.current_index}")
 
         # Load the image
         image = Image.open(texture_path)
@@ -722,12 +738,14 @@ class TextureTagger:
         if self.active_buttons:
             self.filtered_texture_paths = [
                 path for path in self.texture_paths
-                if any(os.path.basename(path).startswith(tag) for tag in self.active_buttons)
+                if any(os.path.basename(path).casefold().startswith(tag.casefold()) for tag in self.active_buttons)
             ]
         else:
             self.filtered_texture_paths = self.texture_paths
+        
         self.current_index = 0
         self.display_texture()
+
 
     def toggle_all_buttons(self):
         """Toggle all filters on or off."""
@@ -904,7 +922,7 @@ class TextureTagger:
         def smooth_progress_update():
             # If the smoothed progress is less than the actual progress, catch up gradually
             if self.smoothed_progress < self.actual_progress:
-                self.smoothed_progress += (self.actual_progress - self.smoothed_progress) * 0.1
+                self.smoothed_progress += (self.actual_progress - self.smoothed_progress) * 0.01
                 self.progress_bar["value"] = min(self.smoothed_progress, 100)
             
             # Continue updating as long as we're not at maximum progress
@@ -966,7 +984,7 @@ class TextureTagger:
             # Filter URLs to include only "_4k.png" files, excluding "_gl_"
             filtered_urls = [
                 texture_url for texture_url in texture_urls
-                if texture_url.endswith("_4k.png") and "_gl_" not in texture_url
+                if texture_url.endswith("_4k.png") and "_gl_" not in texture_url and "_spec_" not in texture_url and "_bump_" not in texture_url and "_mask_" not in texture_url and "_ao_" not in texture_url and "_rough_" not in texture_url
             ]
 
             # Check if there are files to download
@@ -997,6 +1015,9 @@ class TextureTagger:
                 else:
                     print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
+            cleaned_texture_path = texture_path.replace("_result", "")  
+            self.combine_textures(cleaned_texture_path)
+
             #messagebox.showinfo("Success", f"Downloaded files for slot {self.selected_slot}.")
 
         except Exception as e:
@@ -1008,8 +1029,7 @@ class TextureTagger:
             # Restore the cursor
             self.root.config(cursor="")
             self.root.update_idletasks()
-            cleaned_texture_path = texture_path.replace("_result", "")  
-            self.combine_textures(cleaned_texture_path)
+            
             
             self.root.after_cancel(self.check_window_state)
 
@@ -1045,6 +1065,66 @@ class TextureTagger:
 
         return sanitized_filename
 
+    def preprocess_channels(self, blue_channel, green_channel, red_channel, alpha_channel):
+        """
+        Prepares the channels for merging by ensuring they have the same size and data type.
+
+        Args:
+            blue_channel (numpy.ndarray): Blue channel.
+            green_channel (numpy.ndarray): Green channel.
+            red_channel (numpy.ndarray): Red channel.
+            alpha_channel (numpy.ndarray): Alpha channel.
+
+        Returns:
+            tuple: Resized and aligned channels ready for merging.
+        """
+        # Determine the reference size (use the size of the first channel)
+        height, width = blue_channel.shape[:2]
+
+        # Resize all channels to match the reference size
+        green_channel = cv2.resize(green_channel, (width, height))
+        red_channel = cv2.resize(red_channel, (width, height))
+        alpha_channel = cv2.resize(alpha_channel, (width, height))
+
+        # Convert all channels to the same data type (e.g., uint8)
+        channels = [blue_channel, green_channel, red_channel, alpha_channel]
+        target_dtype = blue_channel.dtype  # Use the dtype of the first channel as reference
+        channels = [ch.astype(target_dtype) for ch in channels]
+
+        return tuple(channels)
+
+    def convert_to_8bit_single_channel(self, texture):
+        """
+        Converts a texture to 8-bit single-channel format.
+        
+        Args:
+            texture (numpy.ndarray): Input texture, can be grayscale or RGB, 
+                                    with bit depth 8, 16, 32, or 48.
+        Returns:
+            numpy.ndarray: 8-bit single-channel texture.
+        """
+        # If the texture has multiple channels (e.g., RGB), convert to grayscale
+        if len(texture.shape) == 3 and texture.shape[2] > 1:
+            texture = cv2.cvtColor(texture, cv2.COLOR_BGR2GRAY)
+        
+        # Determine the bit depth of the input texture
+        if texture.dtype == np.uint8:
+            # Already 8-bit, no further conversion needed
+            return texture
+        elif texture.dtype == np.uint16:
+            # Convert 16-bit to 8-bit
+            texture = (texture / 256).astype(np.uint8)
+        elif texture.dtype in [np.float32, np.float64]:
+            # Normalize float textures to 0-255 and convert to 8-bit
+            texture = (255 * (texture / np.max(texture))).astype(np.uint8)
+        elif texture.dtype == np.int32 or texture.dtype == np.int64:
+            # Clip values to 0-255 and convert to 8-bit
+            texture = np.clip(texture, 0, 255).astype(np.uint8)
+        else:
+            raise ValueError(f"Unsupported texture dtype: {texture.dtype}")
+        
+        return texture
+
     def combine_textures(self, texture_name_label):
         staging_dir = "staging"
 
@@ -1073,11 +1153,14 @@ class TextureTagger:
         def find_file(substring):
             #print(f"Looking for files in staging for thumbnail: {thumbnail_name} with substring: {substring}")
 
+            
+
             # Match files for the thumbnail name and the substring
             for filename in os.listdir(staging_dir):
-                if thumbnail_name in filename and substring in filename and filename.endswith(".png"):
+                filename_casefold = filename.casefold()  # Normalize to casefold for comparison
+                if thumbnail_name in filename_casefold and substring in filename_casefold and filename_casefold.endswith(".png"):
                     #print(f"Found file: {filename} (matching {thumbnail_name} and {substring})")
-                    return os.path.join(staging_dir, filename)
+                    return os.path.join(staging_dir, filename_casefold)
 
             print(f"No file found for thumbnail '{thumbnail_name}' and substring '{substring}'")
             return None
@@ -1085,6 +1168,29 @@ class TextureTagger:
         # Helper function to load an image
         def load_image(file_path):
             if file_path and os.path.exists(file_path):
+
+                #with Image.open(file_path) as img:
+                    # Print general image information
+                    #print(f"Image Format: {img.format}")
+                    #print(f"Image Size: {img.size}")
+                    #print(f"Image Mode: {img.mode}")
+
+                    # Print PNG metadata (stored in img.info)
+                    #print("\nPNG Metadata:")
+                    #for key, value in img.info.items():
+                    #    print(f"{key}: {value}")
+
+                    # Print Exif metadata if available
+                    #if hasattr(img, "_getexif") and img._getexif() is not None:
+                    #    print("\nExif Metadata:")
+                    #    exif_data = img._getexif()
+                    #    for tag, value in exif_data.items():
+                    #        tag_name = Image.ExifTags.TAGS.get(tag, tag)
+                    #        print(f"{tag_name}: {value}")
+                    #else:
+                    #    print("\nNo Exif metadata found.")
+                
+            
                 return cv2.imread(file_path, cv2.IMREAD_UNCHANGED)  # Load with alpha if available
             else:
                 print(f"File not found: {file_path}")
@@ -1092,27 +1198,34 @@ class TextureTagger:
 
         # Search for files
         arm_file = find_file("_arm_")
-        rough_file = find_file("_rough_")
-        ao_file = find_file("_ao_")
         nor_file = find_file("_nor_")
         disp_file = find_file("_disp_")
         diff_file = find_file("_diff_")
 
         # Create the first texture: {texture_name_label}_param.png
         arm_texture = load_image(arm_file)
-        rough_texture = load_image(rough_file)
-        ao_texture = load_image(ao_file)
 
-        if arm_texture is not None and rough_texture is not None and ao_texture is not None:
+        if arm_texture is not None:
             # Extract the blue channel from the ARM texture
             red_channel = arm_texture[:, :, 0]  # Blue channel from the ARM texture
-            
+            red_channel = self.convert_to_8bit_single_channel(red_channel)
             # Handle single-channel or multi-channel roughness texture
-            green_channel = rough_texture
+            green_channel = arm_texture[:, :, 1]  # Blue channel from the ARM texture
             
             blue_channel = np.full_like(green_channel, 128)  # 0.5 gray (128 in 8-bit)
-            alpha_channel = ao_texture[:, :, 2]  # Handle single/multi-channel AO
-            # BGRA?
+            alpha_channel = arm_texture[:, :, 2]  # Blue channel from the ARM texture
+
+            red_channel = self.convert_to_8bit_single_channel(red_channel)
+            green_channel = self.convert_to_8bit_single_channel(green_channel)
+            blue_channel = self.convert_to_8bit_single_channel(blue_channel)
+            alpha_channel = self.convert_to_8bit_single_channel(alpha_channel)
+ 
+            # Ensure all channels have the same dimensions
+            alpha_channel = cv2.resize(alpha_channel, (blue_channel.shape[1], blue_channel.shape[0]))
+
+            # Ensure all channels have the same data type
+            alpha_channel = alpha_channel.astype(blue_channel.dtype)
+
             param_texture = cv2.merge([blue_channel, green_channel, red_channel, alpha_channel])
 
             # Save the param texture
@@ -1121,22 +1234,24 @@ class TextureTagger:
             param_output_path = os.path.join(staging_dir, f"{texture_name_label}_param.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(param_output_path, param_texture)
+            print(f"Saved {param_output_path}")
 
         # Create the second texture: {texture_name_label}_nh.png
         nor_texture = load_image(nor_file)
         disp_texture = load_image(disp_file)
 
+        disp_texture = self.convert_to_8bit_single_channel(disp_texture)
+
         if nor_texture is not None and disp_texture is not None:
             # Use the normal map for RGB and displacement for alpha
             blue, green, red = cv2.split(nor_texture)[:3]  # Ignore alpha channel if present
-            if disp_texture.dtype == np.uint16:  # Check if the texture is 16-bit
-                #print("Converting red channel from 16-bit to 8-bit...")
-                red_channel_16bit = disp_texture[:, :, 2]  # OpenCV stores channels as BGR, so red is at index 2
-                alpha_channel = cv2.convertScaleAbs(red_channel_16bit, alpha=(255.0 / 65535.0))
-            else:
-                #print("Using the red channel as-is (already 8-bit)...")
-                alpha_channel = disp_texture[:, :, 2] if len(disp_texture.shape) == 3 else disp_texture
 
+            red = self.convert_to_8bit_single_channel(red)
+            green = self.convert_to_8bit_single_channel(green)
+            blue = self.convert_to_8bit_single_channel(blue)
+                
+            alpha_channel = disp_texture
+ 
             # Ensure all channels have the same dimensions
             alpha_channel = cv2.resize(alpha_channel, (blue.shape[1], blue.shape[0]))
 
@@ -1150,16 +1265,21 @@ class TextureTagger:
             nh_output_path = os.path.join(staging_dir, f"{texture_name_label}_nh.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(nh_output_path, nh_texture)
+            print(f"Saved {nh_output_path}")
+
 
 
         # Create the third texture: {texture_name_label}.png
         diff_texture = load_image(diff_file)
+        #print(diff_texture[0, 0])  # Print the pixel at (0, 0)
 
         if diff_texture is not None:
             # Save the diff texture directly
             diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
             os.makedirs(staging_dir, exist_ok=True)
             success = cv2.imwrite(diff_output_path, diff_texture)
+            print(f"Saved {diff_output_path}")
+
             if not success:
                 print(f"Failed to write the texture to {diff_output_path}")
 
@@ -1186,26 +1306,34 @@ class TextureTagger:
             return False
 
         #print(texture_name_label)
-        if diff_texture is not None and rough_texture is not None and is_ltex_record(texture_name_label):
-            # Ensure rough_texture is single-channel
-            if len(rough_texture.shape) == 3:
-                rough_texture = rough_texture[:, :, 0]
+        if diff_texture is not None and arm_texture is not None and is_ltex_record(texture_name_label):
+            
+            d_red_channel = diff_texture[:, :, 0]  # Red channel
+            d_green_channel = diff_texture[:, :, 1]  # Green channel
+            d_blue_channel = diff_texture[:, :, 2]  # Blue channel
+            d_alpha_channel = arm_texture[:, :, 1]           # Alpha channel
+
+            d_blue_channel = self.convert_to_8bit_single_channel(d_blue_channel)
+            d_green_channel = self.convert_to_8bit_single_channel(d_green_channel)
+            d_red_channel = self.convert_to_8bit_single_channel(d_red_channel)
+
+
+            # Ensure all channels have the same dimensions
+            d_alpha_channel = cv2.resize(d_alpha_channel, (d_blue_channel.shape[1], d_blue_channel.shape[0]))
+
+            # Ensure all channels have the same data type
+            d_alpha_channel = alpha_channel.astype(d_blue_channel.dtype)
 
             # Merge RGB from diff_texture and Alpha from rough_texture
-            diffparam_texture = cv2.merge((
-                diff_texture[:, :, 0],  # Red channel
-                diff_texture[:, :, 1],  # Green channel
-                diff_texture[:, :, 2],  # Blue channel
-                rough_texture           # Alpha channel
-            ))
+            diffparam_texture = cv2.merge([d_red_channel, d_green_channel, d_blue_channel, d_alpha_channel])
+
+            #print(diffparam_texture[0, 0])  # Print the pixel at (0, 0)
 
             # Save the diffparam texture
             diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
             os.makedirs(staging_dir, exist_ok=True)
             cv2.imwrite(diffparam_output_path, diffparam_texture)
             print(f"Saved {diffparam_output_path}")
-        else:
-            print(f"Could not create {texture_name_label}_diffparam.png. Missing textures or not an LTEX record.")
 
         messagebox.showinfo("Successfully created PARAM AND NORM textures for ", f"Texture '{texture_name_label}")
 
