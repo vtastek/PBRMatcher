@@ -153,6 +153,9 @@ class TextureTagger:
         self.label_frame.pack()
         self.image_label = Label(self.label_frame, bg="black")
         self.image_label.pack(fill="both", padx=100, pady=10)
+        self.image_label.bind("<Motion>", self.show_zoom_preview)
+        self.image_label.bind("<Leave>", self.hide_zoom_preview)
+
 
         self.previous_button = Button(self.main, width=10, text="Previous", command=self.previous_texture)
         self.previous_button.place(relx=0.0, rely=0.1, anchor="nw", x=5)
@@ -713,22 +716,52 @@ class TextureTagger:
         self.texture_name_label.config(text=f"Texture: {texture_name}")
 
         texture_name_result = texture_name.replace("_result", "")
-       
+
         self.update_texture_label(texture_name_result)
 
-        #print(f"DEBUG: Filtered texture paths: {self.filtered_texture_paths}")
-        #print(f"DEBUG: Current index: {self.current_index}")
+        # Load the original image
+        image = Image.open(texture_path).convert("RGBA")
 
-        # Load the image
-        image = Image.open(texture_path)
+        # Construct the file path for the overlaid image
+        overlay_path = os.path.join(TARGET_FOLDER, texture_name_result)
 
-        # Calculate resized dimensions
+        if os.path.isfile(overlay_path):
+            # Load the overlay image
+            overlay_image = Image.open(overlay_path).convert("RGBA")
+
+            # Resize the overlay image to match the width of the original image
+            overlay_image = overlay_image.resize(image.size)
+
+            # Extract the alpha channel (transparency) from the overlay image
+            overlay_mask = overlay_image.getchannel("A")
+
+            # Create a new blank image with the same size as the original
+            combined_image = Image.new("RGBA", image.size)
+
+            # Paste the original image onto the blank image
+            combined_image.paste(image, (0, 0))
+
+            # Overlay the second image at a 50% vertical position
+            overlay_position = (0, image.size[1] // 2)
+            combined_image.paste(overlay_image, overlay_position, mask=overlay_mask)
+
+            # Use the combined image for further processing
+            image = combined_image
+
+        # Save the full-resolution image for zoom
+        self.full_res_image = image
+
+        # Resize the final image to fit the display
         base_height = 300
         aspect_ratio = image.width / image.height
         new_width = int(base_height * aspect_ratio)
-        image = image.resize((new_width, base_height))
+        display_image = image.resize((new_width, base_height))
 
-        photo = ImageTk.PhotoImage(image)
+        # Save the display size for zoom preview calculations
+        self.display_image_size = (new_width, base_height)
+
+        # Display the image
+        photo = ImageTk.PhotoImage(display_image)
         self.image_label.config(image=photo)
         self.image_label.image = photo
 
@@ -737,9 +770,60 @@ class TextureTagger:
         stored_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
         for tag in stored_tags:
             self.tags_listbox.insert(END, tag)
-        
+
         # Display thumbnails of related textures
         self.display_thumbnails()
+
+
+    def show_zoom_preview(self, event):
+        """Show a zoomed-in preview of the image where the mouse hovers."""
+        if not hasattr(self, "full_res_image") or not self.full_res_image:
+            return
+
+        # Ensure display size is set
+        if not hasattr(self, "display_image_size"):
+            print("Display image size not set.")
+            return
+
+        # Calculate the mouse position relative to the display image
+        display_width, display_height = self.display_image_size
+        full_width, full_height = self.full_res_image.size
+        x_ratio = full_width / display_width
+        y_ratio = full_height / display_height
+
+        # Determine the corresponding coordinates in the full-resolution image
+        full_x = int(event.x * x_ratio)
+        full_y = int(event.y * y_ratio)
+
+        # Define the size of the zoom preview box
+        zoom_box_size = 200  # Larger box for better detail
+        half_box_size = zoom_box_size // 2
+
+        # Crop the zoom box from the full-resolution image
+        left = max(0, full_x - half_box_size)
+        upper = max(0, full_y - half_box_size)
+        right = min(full_width, full_x + half_box_size)
+        lower = min(full_height, full_y + half_box_size)
+        zoom_box = self.full_res_image.crop((left, upper, right, lower))
+
+        # Resize the zoom box for display
+        zoom_box = zoom_box.resize((300, 300))  # Zoom preview size
+        zoom_photo = ImageTk.PhotoImage(zoom_box)
+
+        # Create a label to show the zoom preview
+        if not hasattr(self, "zoom_label"):
+            self.zoom_label = tk.Label(self.root, bg="white", bd=1, relief="solid")
+
+        self.zoom_label.config(image=zoom_photo)
+        self.zoom_label.image = zoom_photo
+        self.zoom_label.place(x=event.x_root + 10, y=event.y_root + 10)
+
+
+    def hide_zoom_preview(self, event):
+        """Hide the zoom preview when the mouse leaves the image."""
+        if hasattr(self, "zoom_label"):
+            self.zoom_label.place_forget()
+
 
 
     def toggle_button(self, tag):
