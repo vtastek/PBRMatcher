@@ -154,12 +154,14 @@ class TextureTagger:
         self.image_label = Label(self.label_frame, bg="black")
         self.image_label.pack(fill="both", padx=100, pady=10)
 
-        self.previous_button = Button(self.main, text="Previous", command=self.previous_texture)
-        self.previous_button.place(relx=0.0, rely=0.1, anchor="nw", x=5) 
+        self.previous_button = Button(self.main, width=10, text="Previous", command=self.previous_texture)
+        self.previous_button.place(relx=0.0, rely=0.1, anchor="nw", x=5)
+        self.previous_button.place(relheight=0.1) 
         #self.previous_button.pack(side="left", padx=5)
 
-        self.next_button = Button(self.main, text="Next", command=self.next_texture)
-        self.next_button.place(relx=1.0, rely=0.1, anchor="ne", x=-5) 
+        self.next_button = Button(self.main, width=10, text="Next", command=self.next_texture)
+        self.next_button.place(relx=1.0, rely=0.1, anchor="ne", x=-5)
+        self.next_button.place(relheight=0.1) 
         #self.next_button.pack(side="right", padx=5)
 
         # Create the download frame and add the button and progress bar
@@ -262,8 +264,10 @@ class TextureTagger:
         self.button_frame.pack()
 
         # Frame for displaying thumbnails
-        self.thumbnail_frame = Frame(self.main, bg="black")
+        self.thumbnail_frame = Frame(self.main, width=300, height=360, bg="black")
+        
         self.thumbnail_frame.pack(pady=10)
+        self.thumbnail_frame.pack_propagate(False)
 
         # Add togglable buttons with labels
         self.button_info = {
