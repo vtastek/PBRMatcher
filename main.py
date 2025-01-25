@@ -145,8 +145,13 @@ class TextureTagger:
 
         # GUI Elements
         self.texture_name_label = Label(self.main, text="", font=("Arial", 7), pady=10)
+        self.texture_name_label.bind("<Button-1>", self.show_entry) #bind click
         self.texture_name_label.pack()
         self.default_bg = self.texture_name_label.cget("bg")  # Get the current default background
+
+        self.entry_container = Frame(self.root, width=200, height=100)  # Container for entry and list
+        self.entry_container.place(relx=0.438, rely=0.045) #pack the container AFTER the label
+        self.entry_container.lift()
 
 
         self.label_frame = Frame(self.main, bg="black")
@@ -357,6 +362,12 @@ class TextureTagger:
         # Display first texture
         self.display_texture()
         self.update_counts()
+        self.create_autocomplete_entry()
+
+        self.texture_name_entry.pack_forget()  # Start hidden
+        self.autocomplete_list.pack_forget()  # Start hidden
+
+
 
         thumb_button_frame = Frame(self.main)
         thumb_button_frame.pack()
@@ -371,7 +382,118 @@ class TextureTagger:
        
        
 
+   
+    def update_texture_label(self, texture_name):
+        """Change background color if the file exists."""
 
+        # Construct the file path
+        file_path = os.path.join(TARGET_FOLDER, texture_name)
+
+        # Check if the file exists and update the background color
+        if os.path.isfile(file_path):
+            self.texture_name_label.config(bg="green")  # Set background to green
+        else:
+            self.texture_name_label.config(bg=self.default_bg)  # Reset background to default (None)
+
+    def autocomplete(self, entered_text):
+        """Filters the texture list based on the entered text"""
+        matches = []
+        for texture_path in self.filtered_texture_paths:
+            texture_name = os.path.basename(texture_path)
+            if texture_name.startswith(entered_text):
+                matches.append(texture_name)
+        return matches
+
+
+    def show_entry(self, event):
+        """Show the entry box and autocomplete list."""
+        # Get the position of the label (or parent widget)
+        x, y, width, height = self.texture_name_label.bbox("insert")
+
+        self.entry_container.place(relx=0.44, rely=0.04, height=200, width=201)
+        
+        # Position the entry box below the label
+        self.texture_name_entry.place(x=0, y=height + 10, width=200)  # Adjust `x`, `y`, and `width` as needed
+        self.texture_name_entry.lift()  # Bring it to the front
+        self.texture_name_entry.focus_set()
+
+        # Position the autocomplete list below the entry box
+        self.autocomplete_list.place(x=0, y=height + 30, width=200, height=100)  # Adjust the position and size
+        self.autocomplete_list.lift()  # Bring it to the front
+
+
+    def on_selected(self, event):
+        """Handle selection from the autocomplete list."""
+        selection = event.widget.curselection()
+        if not selection:
+            return
+
+        selected_texture_name = event.widget.get(selection)
+
+        print(selected_texture_name)
+        self.update_current_index(selected_texture_name)
+        print(self.current_index)
+        
+        self.display_texture(selected_texture_name)
+        self.update_pagination()
+
+        self.texture_name_entry.place_forget()  # Hide the entry box
+        self.autocomplete_list.place_forget()  # Hide the autocomplete list
+        self.entry_container.place_forget()
+
+
+
+    def handle_keyrelease(self, event):
+        """Update autocomplete list based on text entered."""
+        entered_text = self.texture_name_entry.get()
+
+        matches = self.autocomplete(entered_text)
+        self.autocomplete_list.delete(0, tk.END)
+        for match in matches:
+            self.autocomplete_list.insert(tk.END, match)
+
+        if matches:
+            self.autocomplete_list.config(width=200, height=100)  # Restore size
+            self.autocomplete_list.place(x=0, y=30, width=200, height=100)  # Adjust as needed
+            self.autocomplete_list.lift()
+
+    def on_entry_return(self, event):
+        """Handle Enter key press in entry box."""
+        entered_texture_name = self.texture_name_entry.get()
+        self.texture_name_entry.pack_forget()
+        self.shrink_and_hide_autocomplete()
+        if entered_texture_name:
+            self.display_texture(entered_texture_name)
+
+
+    def shrink_and_hide_autocomplete(self):
+        """Shrink the autocomplete list to 1x1 size, make it visually blend in, then hide it."""
+        #self.autocomplete_list.config(width=1, height=1, highlightthickness=0)
+        #self.autocomplete_list.place_forget()  # Hide the widget
+        self.entry_container.place_forget()
+
+
+
+    def create_autocomplete_entry(self):
+        """Create the entry box and autocomplete list."""                                   
+        self.entry_container.place(width=200, height=100)
+        self.texture_name_entry = ttk.Entry(self.entry_container, width=50)
+        self.texture_name_entry.bind('<KeyRelease>', self.handle_keyrelease)
+        self.texture_name_entry.bind('<Return>', self.on_entry_return)
+
+        self.autocomplete_list = Listbox(
+            self.entry_container,
+            width=50,
+            height=5,
+            highlightthickness=0
+        )
+        self.autocomplete_list.bind('<<ListboxSelect>>', self.on_selected)
+
+        # Start shrunk and hidden
+        self.shrink_and_hide_autocomplete()
+
+
+        
 
     def switch_slot(self, slot_name):
         self.selected_slot = slot_name
@@ -389,6 +511,19 @@ class TextureTagger:
 
         # Set the window geometry
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+    def update_current_index(self, entered_text):
+        """Updates the current index based on the entered texture name and prints it."""
+        # Concatenate the entered text with the subfolder prefix
+        full_path = f"textures\\{entered_text}"
+        
+        # Check if the constructed full path exists in the filtered paths
+        if full_path in self.filtered_texture_paths:
+            self.current_index = self.filtered_texture_paths.index(full_path)
+            print(f"Current index updated to: {self.current_index}")
+        else:
+            self.current_index = -1  # No match found
+            print(f"No matching texture found for {full_path}. Current index set to -1.")
         
     def update_selected_thumbnails_count(self):
         """Update the count of selected thumbnails for the current texture and adjust slot buttons."""
@@ -707,9 +842,26 @@ class TextureTagger:
         else:
             self.texture_name_label.config(bg=self.default_bg)  # Reset background to default (None)
 
-    def display_texture(self):
-        # Get the current texture path
-        texture_path = self.filtered_texture_paths[self.current_index]
+    def display_texture(self, entered_texture_name=None):
+        """Update the texture based on the user input"""
+        print(f"Displaying texture: {entered_texture_name}") #debug print
+        # Find the full path matching the entered name
+        texture_path = None
+
+        if entered_texture_name != None:
+            for path in self.filtered_texture_paths:
+                if os.path.basename(path).startswith(entered_texture_name):
+                    texture_path = path
+                    break
+            if texture_path is None:
+                print(f"Texture not found: {entered_texture_name}")
+                self.texture_name_label.config(text=f"Texture: Not Found")
+                self.image_label.config(image=None) #clear image
+        else:
+            texture_path = self.filtered_texture_paths[self.current_index]
+            
+
+        texture_name = os.path.basename(texture_path)
 
         # Update the texture name label
         texture_name = os.path.basename(texture_path)
@@ -1163,15 +1315,17 @@ class TextureTagger:
 
             # Construct the download URL
             url = f"https://api.polyhaven.com/files/{texture_id_download}"
+            print(url)
 
             # Create the "staging" folder if it doesn't exist
             if not os.path.exists("staging"):
                 os.makedirs("staging")
 
-            #print(thumbnail_name)
+            print("I",thumbnail_name,"I")
             
             # Fetch texture metadata
             data = requests.get(url)
+            print(data)
             if data.status_code != 200:
                 messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
                 return
