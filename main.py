@@ -444,26 +444,62 @@ class TextureTagger:
 
 
     def handle_keyrelease(self, event):
-        """Update autocomplete list based on text entered."""
+        """Update autocomplete list and handle navigation keys."""
         entered_text = self.texture_name_entry.get()
 
+        # Arrow key navigation
+        if event.keysym in ("Up", "Down"):
+            current_selection = self.autocomplete_list.curselection()
+            if current_selection:
+                index = current_selection[0]
+                self.autocomplete_list.selection_clear(index)
+
+                if event.keysym == "Down":
+                    new_index = (index + 1) % self.autocomplete_list.size()
+                elif event.keysym == "Up":
+                    new_index = (index - 1) % self.autocomplete_list.size()
+
+                self.autocomplete_list.selection_set(new_index)
+                self.autocomplete_list.activate(new_index)
+            else:
+                # No selection; start at the first or last item
+                if event.keysym == "Down":
+                    self.autocomplete_list.selection_set(0)
+                    self.autocomplete_list.activate(0)
+                elif event.keysym == "Up":
+                    self.autocomplete_list.selection_set(tk.END)
+                    self.autocomplete_list.activate(tk.END)
+            return
+
+        # Regular filtering logic
         matches = self.autocomplete(entered_text)
         self.autocomplete_list.delete(0, tk.END)
         for match in matches:
             self.autocomplete_list.insert(tk.END, match)
 
         if matches:
-            self.autocomplete_list.config(width=200, height=100)  # Restore size
-            self.autocomplete_list.place(x=0, y=30, width=200, height=100)  # Adjust as needed
-            self.autocomplete_list.lift()
+            self.autocomplete_list.place(x=0, y=30, width=200, height=100)
+        else:
+            self.autocomplete_list.place_forget()
+
+    def hide_autocomplete_on_focus_out(self, event):
+        """Hide the autocomplete entry and list when losing focus."""
+        self.shrink_and_hide_autocomplete()
+
+
 
     def on_entry_return(self, event):
-        """Handle Enter key press in entry box."""
+        """Handle Enter key press in the entry box."""
         entered_texture_name = self.texture_name_entry.get()
-        self.texture_name_entry.pack_forget()
+
+        # Match directly from the autocomplete list
+        matches = self.autocomplete(entered_texture_name)
+        if matches:
+            self.display_texture(matches[0])  # Auto-select the first match
+
+        # Hide the entry and autocomplete
         self.shrink_and_hide_autocomplete()
-        if entered_texture_name:
-            self.display_texture(entered_texture_name)
+
 
 
     def shrink_and_hide_autocomplete(self):
@@ -475,11 +511,12 @@ class TextureTagger:
 
 
     def create_autocomplete_entry(self):
-        """Create the entry box and autocomplete list."""                                   
+        """Create the entry box and autocomplete list."""
         self.entry_container.place(width=200, height=100)
         self.texture_name_entry = ttk.Entry(self.entry_container, width=50)
         self.texture_name_entry.bind('<KeyRelease>', self.handle_keyrelease)
         self.texture_name_entry.bind('<Return>', self.on_entry_return)
+        self.texture_name_entry.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
 
         self.autocomplete_list = Listbox(
             self.entry_container,
@@ -488,12 +525,11 @@ class TextureTagger:
             highlightthickness=0
         )
         self.autocomplete_list.bind('<<ListboxSelect>>', self.on_selected)
+        self.autocomplete_list.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
 
         # Start shrunk and hidden
         self.shrink_and_hide_autocomplete()
 
-
-        
 
     def switch_slot(self, slot_name):
         self.selected_slot = slot_name
