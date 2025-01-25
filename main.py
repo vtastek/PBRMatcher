@@ -1096,7 +1096,7 @@ class TextureTagger:
             # Filter URLs to include only "_4k.png" files, excluding unnecessary files
             filtered_urls = [
                 texture_url for texture_url in texture_urls
-                if texture_url.endswith("_1k.png") and "_gl_" not in texture_url and "_spec_" not in texture_url and
+                if texture_url.endswith("_4k.png") and "_gl_" not in texture_url and "_spec_" not in texture_url and
                 "_bump_" not in texture_url and "_mask_" not in texture_url and "_ao_" not in texture_url and "_rough_" not in texture_url
             ]
 
@@ -1324,8 +1324,8 @@ class TextureTagger:
         # Search for files
         arm_file = find_file("_arm_")
         nor_file = find_file("_nor_")
-        disp_file = find_file("_disp_")
-        diff_file = find_file("_diff_")
+        disp_file = find_file("_disp_") #todo or height
+        diff_file = find_file("_diff_") #todo or color
 
         # Create the first texture: {texture_name_label}_param.png
         arm_texture = load_image(arm_file)
@@ -1415,21 +1415,27 @@ class TextureTagger:
         def is_ltex_record(label):
             label = os.path.basename(label)  # Extract only the filename
 
-            # Remove the "tx_" prefix
-            if label.startswith("tx_"):
-                label = label.replace("tx_", "", 1)  # Replace only the first occurrence of "tx_"
-
             # Remove the extension
             #label = os.path.splitext(label)[0]  # Remove the file extension
             #print(label)
             if os.path.exists(terrain_dump_path):
                 with open(terrain_dump_path, 'r') as file:
                     for line in file:
-                        if line.strip().startswith("LTEX:") and label in line:
+                        line_no_ext = os.path.splitext(line.strip())[0]  # Remove extension and whitespace
+                        if line_no_ext and label.lower() in line_no_ext.lower():
                             return True
             return False
 
-        if diff_texture is not None and arm_texture is not None and is_ltex_record(texture_name_label):
+        ltex_name = os.path.basename(texture_name_label)
+        ltex_name = ltex_name.lower()
+        #if is_ltex_record(ltex_name):
+        #    print("terrain: ", ltex_name)
+        #else:
+        #    print("not terrain: ", ltex_name)
+
+        
+
+        if diff_texture is not None and arm_texture is not None and is_ltex_record(ltex_name):
             
             d_red_channel = diff_texture[:, :, 0]  # Red channel
             d_green_channel = diff_texture[:, :, 1]  # Green channel
