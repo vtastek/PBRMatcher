@@ -1275,19 +1275,14 @@ class TextureTagger:
         #print(f"Selected slot: {self.selected_slot}, Thumbnail: {down_thumbnail_name}")
 
         # Helper function to find a file containing a specific substring for the thumbnail
-        def find_file(substring):
-            #print(f"Looking for files in staging for thumbnail: {down_thumbnail_name} with substring: {substring}")
+        def find_file(substrings): # Changed line 1: Now accepts a list of substrings
+            for substring in substrings: # Changed line 2: Iterates through substrings
+                for filename in os.listdir(staging_dir):
+                    filename_casefold = filename.casefold()
+                    if down_thumbnail_name in filename_casefold and substring in filename_casefold and filename_casefold.endswith(".png"):
+                        return os.path.join(staging_dir, filename_casefold)
 
-            
-
-            # Match files for the thumbnail name and the substring
-            for filename in os.listdir(staging_dir):
-                filename_casefold = filename.casefold()  # Normalize to casefold for comparison
-                if down_thumbnail_name in filename_casefold and substring in filename_casefold and filename_casefold.endswith(".png"):
-                    #print(f"Found file: {filename} (matching {down_thumbnail_name} and {substring})")
-                    return os.path.join(staging_dir, filename_casefold)
-
-            print(f"No file found for thumbnail '{down_thumbnail_name}' and substring '{substring}'")
+            print(f"No file found for thumbnail '{down_thumbnail_name}' and substrings '{substrings}'") # Updated print statement for clarity
             return None
 
         # Helper function to load an image
@@ -1324,8 +1319,8 @@ class TextureTagger:
         # Search for files
         arm_file = find_file("_arm_")
         nor_file = find_file("_nor_")
-        disp_file = find_file("_disp_") #todo or height
-        diff_file = find_file("_diff_") #todo or color
+        disp_file = find_file(["_disp_", "_height_"])
+        diff_file = find_file(["_diff_", "_color_"])
 
         # Create the first texture: {texture_name_label}_param.png
         arm_texture = load_image(arm_file)
