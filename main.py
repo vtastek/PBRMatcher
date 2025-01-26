@@ -17,6 +17,68 @@ from urllib.parse import urlparse
 # Initialize or load JSON database
 DB_FILE = "db.json"
 
+
+import sys
+
+# Global dictionary to track start times of functions
+start_times = {}
+
+# Stack to keep track of function call hierarchy
+call_stack = []
+
+# Threshold for long-running functions (in seconds)
+LONG_FUNCTION_THRESHOLD = 0.004
+
+# Boolean flag to toggle the logging behavior
+log_long_functions = True  # Set this to False to log all function calls
+
+def log_function_calls(frame, event, arg):
+    """Log all function calls (used when log_long_functions is False)."""
+    if event == "call":
+        func_name = frame.f_code.co_name
+        func_file = frame.f_code.co_filename
+        func_line = frame.f_lineno
+        print(f"Function {func_name} called in {func_file}:{func_line}")
+
+def profile_function(frame, event, arg):
+    """Profile function calls, measure execution time, and log long-running ones."""
+    
+    if event == "call":
+        # Record the start time of the function
+        start_times[frame.f_code] = time.perf_counter()
+        
+        # Push the current function onto the call stack with line number
+        call_stack.append((frame.f_code, frame.f_lineno))
+    
+    elif event == "return":
+        # Measure the execution time of the function
+        end_time = time.perf_counter()
+        start_time = start_times.get(frame.f_code)
+        
+        if start_time:
+            execution_time = end_time - start_time
+            if execution_time > LONG_FUNCTION_THRESHOLD:
+                # Log long-running functions with indentation based on call depth
+                indentation = '  ' * (len(call_stack) - 1)  # Indentation based on call depth
+                function_name = frame.f_code.co_name
+                function_line = frame.f_lineno
+                function_file = frame.f_code.co_filename
+                print(f"{indentation}Function '{function_name}' (Line {function_line}, File: {function_file}) "
+                      f"took {execution_time:.4f} seconds")
+            
+            # Clean up by removing the function from the stack
+            call_stack.pop()
+
+def set_profiler():
+    """Set the profiler based on the log_long_functions flag."""
+    if log_long_functions:
+        sys.setprofile(profile_function)
+    else:
+        sys.setprofile(log_function_calls)
+
+# Set the profiler initially
+#set_profiler()
+
 def load_database():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r") as f:
@@ -114,7 +176,19 @@ class TextureTagger:
         self.db = db
         self.texture_paths = self.get_texture_paths()
         self.filtered_texture_paths = self.texture_paths  # For filtering purposes
+        
+        # Create a separate list for texture names (remove "textures\" prefix)
+        self.filtered_texture_names = [
+            os.path.basename(texture_path).replace("textures\\", "") for texture_path in self.filtered_texture_paths
+        ]
+        # Create a set for fast lookup if needed
+        self.filtered_texture_names_set = set(self.filtered_texture_names)
+
+        self.root.bind("<Button-1>", self.global_click_handler)
+
+
         self.current_index = self.get_current_index()
+        self.current_selection = None
      
         self.thumbnail_cache = {}  # Cache to store preloaded thumbnails
         self.cache_size = 20  # Limit the cache size to avoid memory issues
@@ -149,7 +223,7 @@ class TextureTagger:
         self.texture_name_label.pack()
         self.default_bg = self.texture_name_label.cget("bg")  # Get the current default background
 
-        self.entry_container = Frame(self.root, width=200, height=100)  # Container for entry and list
+        self.entry_container = Frame(self.root, width=200, height=150)  # Container for entry and list
         self.entry_container.place(relx=0.438, rely=0.045) #pack the container AFTER the label
         self.entry_container.lift()
 
@@ -397,126 +471,143 @@ class TextureTagger:
 
     def autocomplete(self, entered_text):
         """Filters the texture list based on the entered text"""
-        matches = []
-        for texture_path in self.filtered_texture_paths:
-            texture_name = os.path.basename(texture_path)
-            if texture_name.startswith(entered_text):
-                matches.append(texture_name)
-        return matches
-
+        return [name for name in self.filtered_texture_names_set if name.startswith(entered_text)]
 
     def show_entry(self, event):
         """Show the entry box and autocomplete list."""
-        # Get the position of the label (or parent widget)
-        x, y, width, height = self.texture_name_label.bbox("insert")
+        self.entry_container.place(relx=0.44, rely=0.04, height=150, width=200)
+        self.texture_name_entry.place(x=0, y=10, width=200)
+        self.autocomplete_list.place(x=0, y=40, width=200, height=100)
+        self.autocomplete_list.lift()
 
-        self.entry_container.place(relx=0.44, rely=0.04, height=200, width=201)
-        
-        # Position the entry box below the label
-        self.texture_name_entry.place(x=0, y=height + 10, width=200)  # Adjust `x`, `y`, and `width` as needed
-        self.texture_name_entry.lift()  # Bring it to the front
+        print("focusentry")
         self.texture_name_entry.focus_set()
-
-        # Position the autocomplete list below the entry box
-        self.autocomplete_list.place(x=0, y=height + 30, width=200, height=100)  # Adjust the position and size
-        self.autocomplete_list.lift()  # Bring it to the front
-
+        # Ensure focus is consistently set after a short delay
+        self.texture_name_entry.after(1, lambda: self.texture_name_entry.focus_set())
 
     def on_selected(self, event):
         """Handle selection from the autocomplete list."""
-        selection = event.widget.curselection()
-        if not selection:
-            return
+        if isinstance(event.widget, Listbox):
+            selection = event.widget.curselection()
+            if selection:
+                selected_texture_name = event.widget.get(selection[0])
+                self.current_selection = selected_texture_name  # Update current selection
+                #print(f"Selected: {selected_texture_name}")
 
-        selected_texture_name = event.widget.get(selection)
+                self.update_current_index(selected_texture_name)
+                self.display_texture(selected_texture_name)
+                self.update_pagination()
 
-        print(selected_texture_name)
-        self.update_current_index(selected_texture_name)
-        print(self.current_index)
-        
-        self.display_texture(selected_texture_name)
-        self.update_pagination()
+                # Hide autocomplete and entry box after selection
+                self.texture_name_entry.place_forget()
+                self.autocomplete_list.place_forget()
+                self.entry_container.place_forget()
 
-        self.texture_name_entry.place_forget()  # Hide the entry box
-        self.autocomplete_list.place_forget()  # Hide the autocomplete list
-        self.entry_container.place_forget()
+    def navigate_autocomplete(self, event):
+        """Navigate the autocomplete list with arrow keys."""
+        if self.autocomplete_list.size() == 0:
+            return  # No items to navigate
+
+        # Get current selection
+        current_selection = self.autocomplete_list.curselection()
+        new_index = None
+
+        if event.keysym == 'Up':
+            if current_selection:
+                new_index = max(0, current_selection[0] - 1)  # Move up in the list
+            else:
+                new_index = self.autocomplete_list.size() - 1  # Wrap to the last item
+        elif event.keysym == 'Down':
+            if current_selection:
+                new_index = min(self.autocomplete_list.size() - 1, current_selection[0] + 1)  # Move down
+            else:
+                new_index = 0  # Start from the first item
+
+        if new_index is not None:
+            # Update selection and active item
+            self.autocomplete_list.selection_clear(0, tk.END)
+            self.autocomplete_list.selection_set(new_index)
+            self.autocomplete_list.activate(new_index)
+
+            # Update the current selection
+            self.current_selection = self.autocomplete_list.get(new_index)
 
 
 
     def handle_keyrelease(self, event):
-        """Update autocomplete list and handle navigation keys."""
+        """Update autocomplete list based on text entered and handle navigation."""
         entered_text = self.texture_name_entry.get()
 
-        # Arrow key navigation
-        if event.keysym in ("Up", "Down"):
-            current_selection = self.autocomplete_list.curselection()
-            if current_selection:
-                index = current_selection[0]
-                self.autocomplete_list.selection_clear(index)
-
-                if event.keysym == "Down":
-                    new_index = (index + 1) % self.autocomplete_list.size()
-                elif event.keysym == "Up":
-                    new_index = (index - 1) % self.autocomplete_list.size()
-
-                self.autocomplete_list.selection_set(new_index)
-                self.autocomplete_list.activate(new_index)
-            else:
-                # No selection; start at the first or last item
-                if event.keysym == "Down":
-                    self.autocomplete_list.selection_set(0)
-                    self.autocomplete_list.activate(0)
-                elif event.keysym == "Up":
-                    self.autocomplete_list.selection_set(tk.END)
-                    self.autocomplete_list.activate(tk.END)
+        # Avoid clearing matches when using arrow keys
+        if event.keysym in ['Up', 'Down']:
             return
 
-        # Regular filtering logic
         matches = self.autocomplete(entered_text)
         self.autocomplete_list.delete(0, tk.END)
-        for match in matches:
-            self.autocomplete_list.insert(tk.END, match)
 
         if matches:
-            self.autocomplete_list.place(x=0, y=30, width=200, height=100)
-        else:
-            self.autocomplete_list.place_forget()
+            # Populate autocomplete list with matches
+            for match in matches:
+                self.autocomplete_list.insert(tk.END, match)
 
-    def hide_autocomplete_on_focus_out(self, event):
-        """Hide the autocomplete entry and list when losing focus."""
-        self.shrink_and_hide_autocomplete()
+            self.autocomplete_list.place(x=0, y=40, width=200, height=100)
+            self.autocomplete_list.lift()
 
+            # Reset selection to the first match
+            self.autocomplete_list.selection_clear(0, tk.END)
+            self.autocomplete_list.selection_set(0)
+            self.autocomplete_list.activate(0)
+            self.current_selection = matches[0]
+
+    def hide_autocomplete_on_focus_out(self, event=None):
+        """Hide the entry container, autocomplete list, and entry box on focus out."""
+        if self.entry_container.winfo_ismapped():
+            focus_widget = self.root.focus_get()  # `root` is your Tkinter root or main window
+            if focus_widget not in (self.texture_name_entry, self.autocomplete_list):
+                self.shrink_and_hide_autocomplete()
 
 
     def on_entry_return(self, event):
-        """Handle Enter key press in the entry box."""
-        entered_texture_name = self.texture_name_entry.get()
+        """Handle Enter key press to select the highlighted item in the Listbox."""
+        if self.autocomplete_list.size() > 0:  # Ensure the Listbox has items
+            current_selection = self.autocomplete_list.curselection()
+            if current_selection:  # If an item in the Listbox is highlighted
+                selected_texture_name = self.autocomplete_list.get(current_selection[0])
+                self.current_selection = selected_texture_name
+                print(f"Selected: {selected_texture_name}")
 
-        # Match directly from the autocomplete list
-        matches = self.autocomplete(entered_texture_name)
-        if matches:
-            self.display_texture(matches[0])  # Auto-select the first match
+                self.update_current_index(selected_texture_name)
+                self.display_texture(selected_texture_name)
+                self.update_pagination()
+            else:
+                print("No item highlighted in the Listbox.")
+        else:
+            print("No items in the Listbox to select.")
 
         # Hide the entry and autocomplete
         self.shrink_and_hide_autocomplete()
 
 
 
+
     def shrink_and_hide_autocomplete(self):
-        """Shrink the autocomplete list to 1x1 size, make it visually blend in, then hide it."""
-        #self.autocomplete_list.config(width=1, height=1, highlightthickness=0)
-        #self.autocomplete_list.place_forget()  # Hide the widget
+        """Shrink the autocomplete list to 1x1 size, then hide it."""
+        self.autocomplete_list.place_forget()
         self.entry_container.place_forget()
+        self.current_selection = None
 
 
 
     def create_autocomplete_entry(self):
         """Create the entry box and autocomplete list."""
-        self.entry_container.place(width=200, height=100)
+        self.entry_container.place(width=200, height=150)
         self.texture_name_entry = ttk.Entry(self.entry_container, width=50)
         self.texture_name_entry.bind('<KeyRelease>', self.handle_keyrelease)
         self.texture_name_entry.bind('<Return>', self.on_entry_return)
-        self.texture_name_entry.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
+        self.texture_name_entry.bind('<Up>', self.navigate_autocomplete)
+        self.texture_name_entry.bind('<Down>', self.navigate_autocomplete)
+
+        #self.texture_name_entry.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
 
         self.autocomplete_list = Listbox(
             self.entry_container,
@@ -524,11 +615,24 @@ class TextureTagger:
             height=5,
             highlightthickness=0
         )
+        self.autocomplete_list.place(x=0, y=40)
         self.autocomplete_list.bind('<<ListboxSelect>>', self.on_selected)
-        self.autocomplete_list.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
+        #self.autocomplete_list.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
 
         # Start shrunk and hidden
         self.shrink_and_hide_autocomplete()
+
+    
+    def global_click_handler(self, event):
+        """Handle global mouse clicks to hide the autocomplete."""
+        widget = event.widget
+
+        # List of widgets that should not trigger hiding
+        allowed_widgets = (self.texture_name_entry, self.autocomplete_list, self.texture_name_label)
+
+        # Hide if clicking outside the allowed widgets
+        if widget not in allowed_widgets:
+            self.shrink_and_hide_autocomplete()
 
 
     def switch_slot(self, slot_name):
@@ -556,7 +660,7 @@ class TextureTagger:
         # Check if the constructed full path exists in the filtered paths
         if full_path in self.filtered_texture_paths:
             self.current_index = self.filtered_texture_paths.index(full_path)
-            print(f"Current index updated to: {self.current_index}")
+            #print(f"Current index updated to: {self.current_index}")
         else:
             self.current_index = -1  # No match found
             print(f"No matching texture found for {full_path}. Current index set to -1.")
@@ -628,7 +732,7 @@ class TextureTagger:
         self.selected_thumbnails_label.config(text=f"Selected Thumbnails: {count}")
 
 
-        self.update_counts()
+        
 
     def display_thumbnails(self):
         """Display selectable thumbnails of textures from Polyhaven."""
@@ -745,6 +849,7 @@ class TextureTagger:
 
         # Save changes to the database
         save_database(self.db)
+        self.update_counts()
 
     def next_thumbnails(self):
         # Update the index and display thumbnails
@@ -880,11 +985,9 @@ class TextureTagger:
 
     def display_texture(self, entered_texture_name=None):
         """Update the texture based on the user input"""
-        print(f"Displaying texture: {entered_texture_name}") #debug print
-        # Find the full path matching the entered name
         texture_path = None
 
-        if entered_texture_name != None:
+        if entered_texture_name is not None:
             for path in self.filtered_texture_paths:
                 if os.path.basename(path).startswith(entered_texture_name):
                     texture_path = path
@@ -892,58 +995,79 @@ class TextureTagger:
             if texture_path is None:
                 print(f"Texture not found: {entered_texture_name}")
                 self.texture_name_label.config(text=f"Texture: Not Found")
-                self.image_label.config(image=None) #clear image
+                self.image_label.config(image=None)  # Clear image
+                return
         else:
             texture_path = self.filtered_texture_paths[self.current_index]
-            
 
         texture_name = os.path.basename(texture_path)
 
         # Update the texture name label
-        texture_name = os.path.basename(texture_path)
         self.texture_name_label.config(text=f"Texture: {texture_name}")
 
         texture_name_result = texture_name.replace("_result", "")
-
         self.update_texture_label(texture_name_result)
 
-        # Load the original image
-        image = Image.open(texture_path).convert("RGBA")
+        # Load the original image using OpenCV
+        image = cv2.imread(texture_path, cv2.IMREAD_UNCHANGED)
+
+        if image is None:
+            print(f"Failed to load image: {texture_path}")
+            return
+
+        # Convert the original image to RGBA format
+        if image.ndim == 2:  # Grayscale image
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGBA)
+        elif image.shape[2] == 3:  # BGR
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+        elif image.shape[2] == 4:  # BGRA
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
 
         # Construct the file path for the overlaid image
         overlay_path = os.path.join(TARGET_FOLDER, texture_name_result)
 
         if os.path.isfile(overlay_path):
-            # Load the overlay image
-            overlay_image = Image.open(overlay_path).convert("RGBA")
+            # Load the overlay image using OpenCV
+            overlay_image = cv2.imread(overlay_path, cv2.IMREAD_UNCHANGED)
 
-            # Resize the overlay image to match the width of the original image
-            overlay_image = overlay_image.resize(image.size)
+            if overlay_image is None:
+                print(f"Failed to load overlay image: {overlay_path}")
+                return
 
-            # Extract the alpha channel (transparency) from the overlay image
-            overlay_mask = overlay_image.getchannel("A")
+            # Handle bit depth: normalize 16-bit or 48-bit to 8-bit
+            if overlay_image.dtype == np.uint16:  # 16-bit or 48-bit image
+                overlay_image = (overlay_image / 256).astype(np.uint8)
 
-            # Create a new blank image with the same size as the original
-            combined_image = Image.new("RGBA", image.size)
+            # Convert the overlay image to RGBA format
+            if overlay_image.ndim == 2:  # Grayscale
+                overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_GRAY2RGBA)
+            elif overlay_image.shape[2] == 3:  # BGR
+                overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGR2RGBA)
+            elif overlay_image.shape[2] == 4:  # BGRA
+                overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGRA2RGBA)
 
-            # Paste the original image onto the blank image
-            combined_image.paste(image, (0, 0))
+            # Resize the overlay image to match the original image size
+            overlay_image_resized = cv2.resize(overlay_image, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
 
-            # Overlay the second image at a 50% vertical position
-            overlay_position = (0, image.size[1] // 2)
-            combined_image.paste(overlay_image, overlay_position, mask=overlay_mask)
+            # Combine the images
+            combined_image = np.copy(image)  # Start with the original image
+            overlay_y_offset = image.shape[0] // 2  # Overlay at 50% vertical position
+            combined_image[overlay_y_offset:, :, :] = overlay_image_resized[overlay_y_offset:, :, :]
 
             # Use the combined image for further processing
             image = combined_image
 
-        # Save the full-resolution image for zoom
-        self.full_res_image = image
+        # Save the full-resolution image for zoom (convert back to PIL for consistency if needed)
+        self.full_res_image = Image.fromarray(image)
 
         # Resize the final image to fit the display
         base_height = 300
-        aspect_ratio = image.width / image.height
+        aspect_ratio = image.shape[1] / image.shape[0]
         new_width = int(base_height * aspect_ratio)
-        display_image = image.resize((new_width, base_height))
+        display_image = cv2.resize(image, (new_width, base_height), interpolation=cv2.INTER_LINEAR)
+
+        # Convert back to PIL for Tkinter compatibility
+        display_image = Image.fromarray(display_image)
 
         # Save the display size for zoom preview calculations
         self.display_image_size = (new_width, base_height)
@@ -961,6 +1085,8 @@ class TextureTagger:
 
         # Display thumbnails of related textures
         self.display_thumbnails()
+
+
 
 
     def show_zoom_preview(self, event):
@@ -1024,7 +1150,6 @@ class TextureTagger:
             self.buttons[tag].config(bg="lightblue")  # Set to active color
 
         self.apply_filters()
-        self.update_counts()
         self.update_pagination()
 
     def update_pagination(self):
@@ -1065,8 +1190,6 @@ class TextureTagger:
                 self.buttons[key].config(bg="lightblue")  # Set all to active color
 
         self.apply_filters()
-        self.update_counts()
-
 
     def add_tag(self):
         # Get the current texture path
@@ -1142,9 +1265,6 @@ class TextureTagger:
         # Reset the current index and display the first texture
         self.current_index = 0
         self.display_texture()
-
-        # Update counts
-        self.update_counts()
 
     def get_matching_textures(self):
         """Retrieve textures from the Polyhaven API that match the tags of the current texture."""
@@ -1351,17 +1471,15 @@ class TextureTagger:
 
             # Construct the download URL
             url = f"https://api.polyhaven.com/files/{texture_id_download}"
-            print(url)
+            #print(":",url,":")
 
             # Create the "staging" folder if it doesn't exist
             if not os.path.exists("staging"):
                 os.makedirs("staging")
-
-            print("I",thumbnail_name,"I")
             
             # Fetch texture metadata
             data = requests.get(url)
-            print(data)
+            #print(data.json())
             if data.status_code != 200:
                 messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
                 return
@@ -1371,11 +1489,13 @@ class TextureTagger:
             # Extract URLs for downloading texture files
             texture_urls = self.extract_urls(data.json())
 
-            # Filter URLs to include only "_4k.png" files, excluding unnecessary files
+            # Define the required file types
+            required_files = ["_diff_4k.png", "_color_4k.png", "_nor_dx_4k.png", "_arm_4k.png", "_disp_4k.png", "_height_4k.png"]
+
+            # Filter the URLs based on the required file types
             filtered_urls = [
                 texture_url for texture_url in texture_urls
-                if texture_url.endswith("_4k.png") and "_gl_" not in texture_url and "_spec_" not in texture_url and
-                "_bump_" not in texture_url and "_mask_" not in texture_url and "_ao_" not in texture_url and "_rough_" not in texture_url
+                if any(required_file in texture_url for required_file in required_files)
             ]
 
             # Check if there are files to download
@@ -1746,3 +1866,4 @@ if __name__ == "__main__":
     root = Tk()
     app = TextureTagger(root, db)
     root.mainloop()
+
