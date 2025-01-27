@@ -253,7 +253,6 @@ class TextureTagger:
 
         self.download_frame.place(relx=relscale, rely=0.0, anchor="ne", y=offset)
 
-        #self.download_button = Button(self.download_frame, text="Download Texture", command=self.download_texture)
         #self.download_button.grid(row=0, column=0, pady=10)
 
         # Add "Add to Queue" button
@@ -480,7 +479,7 @@ class TextureTagger:
         self.autocomplete_list.place(x=0, y=40, width=200, height=100)
         self.autocomplete_list.lift()
 
-        print("focusentry")
+        #print("focusentry")
         self.texture_name_entry.focus_set()
         # Ensure focus is consistently set after a short delay
         self.texture_name_entry.after(1, lambda: self.texture_name_entry.focus_set())
@@ -574,7 +573,7 @@ class TextureTagger:
             if current_selection:  # If an item in the Listbox is highlighted
                 selected_texture_name = self.autocomplete_list.get(current_selection[0])
                 self.current_selection = selected_texture_name
-                print(f"Selected: {selected_texture_name}")
+                #print(f"Selected: {selected_texture_name}")
 
                 self.update_current_index(selected_texture_name)
                 self.display_texture(selected_texture_name)
@@ -663,7 +662,7 @@ class TextureTagger:
             #print(f"Current index updated to: {self.current_index}")
         else:
             self.current_index = -1  # No match found
-            print(f"No matching texture found for {full_path}. Current index set to -1.")
+            #print(f"No matching texture found for {full_path}. Current index set to -1.")
         
     def update_selected_thumbnails_count(self):
         """Update the count of selected thumbnails for the current texture and adjust slot buttons."""
@@ -1001,6 +1000,8 @@ class TextureTagger:
             texture_path = self.filtered_texture_paths[self.current_index]
 
         texture_name = os.path.basename(texture_path)
+        print(texture_path)
+        print(texture_name)
 
         # Update the texture name label
         self.texture_name_label.config(text=f"Texture: {texture_name}")
@@ -1456,11 +1457,9 @@ class TextureTagger:
         """Perform the actual download process for a specific texture and thumbnail."""
         try:
             
-            # Normalize thumbnail name for use in URLs
-            #thumbnail_name_url = self.get_key_by_name(self.all_assets, thumbnail_name)
-
-            #thumbnail_name_url = thumbnail_name.lower().replace(" ", "_")
-            #thumbnail_name = thumbnail_name.lower().replace(" ", "_")
+            #print(texture_path)
+            #print(thumbnail_name)
+            #print(texture_name_label)
             texture_id = thumbnail_name
 
             texture_id_download = self.get_key_by_name(self.all_assets, thumbnail_name)
@@ -1520,6 +1519,7 @@ class TextureTagger:
                     file_path = os.path.join("staging", sanitized_filename)
                     with open(file_path, "wb") as file:
                         file.write(response.content)
+                        #print(sanitized_filename)
                 else:
                     print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
@@ -1637,10 +1637,7 @@ class TextureTagger:
         Returns:
             numpy.ndarray: 8-bit single-channel texture.
         """
-        # If the texture has multiple channels (e.g., RGB), convert to grayscale
-        if len(texture.shape) == 3 and texture.shape[2] > 1:
-            texture = cv2.cvtColor(texture, cv2.COLOR_BGR2GRAY)
-        
+
         # Determine the bit depth of the input texture
         if texture.dtype == np.uint8:
             # Already 8-bit, no further conversion needed
@@ -1660,204 +1657,108 @@ class TextureTagger:
         return texture
 
     def combine_textures(self, texture_path, thumbnail_name, texture_name_label):
+        """
+        Combines texture components into various output textures.
+        """
         staging_dir = "staging"
+        os.makedirs(staging_dir, exist_ok=True)
 
-        texture_name_label = f"textures\\{texture_name_label}"
-        texture_name_label = texture_name_label.lower().replace("_result", "")
-
-        # Check if there is a selected slot
-        thumbnail_name = self.get_key_by_name(self.all_assets, thumbnail_name)
-
-        down_thumbnail_name = thumbnail_name.lower().replace(" ", "_")  # Normalize thumbnail name
-
-        #print(f"Selected slot: {self.selected_slot}, Thumbnail: {down_thumbnail_name}")
-
-        # Helper function to find a file containing a specific substring for the thumbnail
-        def find_file(substrings): # Changed line 1: Now accepts a list of substrings
-            for substring in substrings: # Changed line 2: Iterates through substrings
-                for filename in os.listdir(staging_dir):
-                    filename_casefold = filename.casefold()
-                    if down_thumbnail_name in filename_casefold and substring in filename_casefold and filename_casefold.endswith(".png"):
-                        return os.path.join(staging_dir, filename_casefold)
-
-            print(f"No file found for thumbnail '{down_thumbnail_name}' and substrings '{substrings}'") # Updated print statement for clarity
-            return None
+        # Normalize texture_name_label and thumbnail_name
+        texture_name_label = f"textures\\{texture_name_label}".lower().replace("_result", "")
+        down_thumbnail_name = thumbnail_name.lower().replace(" ", "_")
 
         # Helper function to load an image
         def load_image(file_path):
             if file_path and os.path.exists(file_path):
+                return cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+            print(f"File not found: {file_path}")
+            return None
 
-                #with Image.open(file_path) as img:
-                    # Print general image information
-                    #print(f"Image Format: {img.format}")
-                    #print(f"Image Size: {img.size}")
-                    #print(f"Image Mode: {img.mode}")
+        # Helper function to find a file
+        def find_file(substrings, down_thumbnail_name):
+            if isinstance(substrings, str):
+                substrings = [substrings]
+            for filename in os.listdir(staging_dir):
+                filename_casefold = filename.casefold()
+                if filename_casefold.startswith(down_thumbnail_name):
+                    for substring in substrings:
+                        if substring in filename_casefold:
+                            return os.path.join(staging_dir, filename)
+            return None
 
-                    # Print PNG metadata (stored in img.info)
-                    #print("\nPNG Metadata:")
-                    #for key, value in img.info.items():
-                    #    print(f"{key}: {value}")
+        # Load texture files
+        arm_file = find_file("_arm_", down_thumbnail_name)
+        nor_file = find_file("_nor_", down_thumbnail_name)
+        disp_file = find_file(["_disp_", "_height_"], down_thumbnail_name)
+        diff_file = find_file(["_diff_", "_color_"], down_thumbnail_name)
 
-                    # Print Exif metadata if available
-                    #if hasattr(img, "_getexif") and img._getexif() is not None:
-                    #    print("\nExif Metadata:")
-                    #    exif_data = img._getexif()
-                    #    for tag, value in exif_data.items():
-                    #        tag_name = Image.ExifTags.TAGS.get(tag, tag)
-                    #        print(f"{tag_name}: {value}")
-                    #else:
-                    #    print("\nNo Exif metadata found.")
-                
-            
-                return cv2.imread(file_path, cv2.IMREAD_UNCHANGED)  # Load with alpha if available
-            else:
-                print(f"File not found: {file_path}")
-                return None
-
-        # Search for files
-        arm_file = find_file("_arm_")
-        nor_file = find_file("_nor_")
-        disp_file = find_file(["_disp_", "_height_"])
-        diff_file = find_file(["_diff_", "_color_"])
-
-        # Create the first texture: {texture_name_label}_param.png
         arm_texture = load_image(arm_file)
-
-        if arm_texture is not None:
-            # Extract the blue channel from the ARM texture
-            red_channel = arm_texture[:, :, 0]  # Blue channel from the ARM texture
-            red_channel = self.convert_to_8bit_single_channel(red_channel)
-            # Handle single-channel or multi-channel roughness texture
-            green_channel = arm_texture[:, :, 1]  # Blue channel from the ARM texture
-            
-            blue_channel = np.full_like(green_channel, 128)  # 0.5 gray (128 in 8-bit)
-            alpha_channel = arm_texture[:, :, 2]  # Blue channel from the ARM texture
-
-            red_channel = self.convert_to_8bit_single_channel(red_channel)
-            green_channel = self.convert_to_8bit_single_channel(green_channel)
-            blue_channel = self.convert_to_8bit_single_channel(blue_channel)
-            alpha_channel = self.convert_to_8bit_single_channel(alpha_channel)
- 
-            # Ensure all channels have the same dimensions
-            alpha_channel = cv2.resize(alpha_channel, (blue_channel.shape[1], blue_channel.shape[0]))
-
-            # Ensure all channels have the same data type
-            alpha_channel = alpha_channel.astype(blue_channel.dtype)
-
-            param_texture = cv2.merge([blue_channel, green_channel, red_channel, alpha_channel])
-
-            # Save the param texture
-            texture_name_label = texture_name_label.lower().replace(".png", "")
-
-            param_output_path = os.path.join(staging_dir, f"{texture_name_label}_param.png")
-            os.makedirs(staging_dir, exist_ok=True)
-            cv2.imwrite(param_output_path, param_texture)
-            print(f"Saved param {param_output_path}")
-
-        # Create the second texture: {texture_name_label}_nh.png
         nor_texture = load_image(nor_file)
         disp_texture = load_image(disp_file)
-
-        disp_texture = self.convert_to_8bit_single_channel(disp_texture)
-
-        if nor_texture is not None and disp_texture is not None:
-            # Use the normal map for RGB and displacement for alpha
-            blue, green, red = cv2.split(nor_texture)[:3]  # Ignore alpha channel if present
-
-            red = self.convert_to_8bit_single_channel(red)
-            green = self.convert_to_8bit_single_channel(green)
-            blue = self.convert_to_8bit_single_channel(blue)
-                
-            alpha_channel = disp_texture
- 
-            # Ensure all channels have the same dimensions
-            alpha_channel = cv2.resize(alpha_channel, (blue.shape[1], blue.shape[0]))
-
-            # Ensure all channels have the same data type
-            alpha_channel = alpha_channel.astype(blue.dtype)
-
-            # Merge channels into a single RGBA image
-            nh_texture = cv2.merge([blue, green, red, alpha_channel])
-
-            # Save the nh texture
-            nh_output_path = os.path.join(staging_dir, f"{texture_name_label}_nh.png")
-            os.makedirs(staging_dir, exist_ok=True)
-            cv2.imwrite(nh_output_path, nh_texture)
-            print(f"Saved nh {nh_output_path}")
-
-
-        # Create the third texture: {texture_name_label}.png
         diff_texture = load_image(diff_file)
-        #print(diff_texture[0, 0])  # Print the pixel at (0, 0)
 
-        if diff_texture is not None:
-            # Save the diff texture directly
-            diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
-            os.makedirs(staging_dir, exist_ok=True)
-            success = cv2.imwrite(diff_output_path, diff_texture)
-            print(f"Saved diff {diff_output_path}")
+        # Create textures
+        self.create_param_texture(texture_name_label, staging_dir, arm_texture)
+        self.create_nh_texture(texture_name_label, staging_dir, nor_texture, disp_texture)
+        self.save_diffuse_texture(texture_name_label, staging_dir, diff_texture)
 
-            if not success:
-                print(f"Failed to write the texture to {diff_output_path}")
+        # Optional: Create diffparam texture if conditions are met
+        self.create_diffparam_texture(texture_name_label, staging_dir, diff_texture, arm_texture)
 
-        # Dynamically resolve the path to terrain_dump.txt
-        base_dir = os.path.dirname(DB_FILE)
-        terrain_dump_path = os.path.join(base_dir, "terrain_dump.txt")
+    # --- Modular Functions ---
+    def create_param_texture(self, texture_name_label, staging_dir, arm_texture):
+        """Creates and saves the _param texture."""
+        if arm_texture is None:
+            return
+        param_r = self.convert_to_8bit_single_channel(arm_texture[:, :, 0])  # Blue
+        param_g = self.convert_to_8bit_single_channel(arm_texture[:, :, 1])  # Green
+        param_b = np.full_like(param_g, 128)  # Mid-gray (128)
+        param_a = self.convert_to_8bit_single_channel(arm_texture[:, :, 2])  # Red
 
-        # Check if texture_name_label is an LTEX record
-        def is_ltex_record(label):
-            label = os.path.basename(label)  # Extract only the filename
+        # Combine into a single texture
+        param_texture = cv2.merge([param_b, param_g, param_r, param_a])
+        param_output_path = os.path.join(staging_dir, f"{texture_name_label}_param.png")
+        cv2.imwrite(param_output_path, param_texture)
+        print(f"Saved param texture: {param_output_path}")
 
-            # Remove the extension
-            #label = os.path.splitext(label)[0]  # Remove the file extension
-            #print(label)
-            if os.path.exists(terrain_dump_path):
-                with open(terrain_dump_path, 'r') as file:
-                    for line in file:
-                        line_no_ext = os.path.splitext(line.strip())[0]  # Remove extension and whitespace
-                        if line_no_ext and label.lower() in line_no_ext.lower():
-                            return True
-            return False
+    def create_nh_texture(self, texture_name_label, staging_dir, nor_texture, disp_texture):
+        """Creates and saves the _nh texture."""
+        if nor_texture is None or disp_texture is None:
+            return
+        nh_red = self.convert_to_8bit_single_channel(nor_texture[:, :, 2])  # Red
+        nh_green = self.convert_to_8bit_single_channel(nor_texture[:, :, 1])  # Green
+        nh_blue = self.convert_to_8bit_single_channel(nor_texture[:, :, 0])  # Blue
+        nh_alpha = self.convert_to_8bit_single_channel(disp_texture[:, :, 2] if len(disp_texture.shape) == 3 else disp_texture)
 
-        ltex_name = os.path.basename(texture_name_label)
-        ltex_name = ltex_name.lower()
-        #if is_ltex_record(ltex_name):
-        #    print("terrain: ", ltex_name)
-        #else:
-        #    print("not terrain: ", ltex_name)
+        # Combine into a single texture
+        nh_texture = cv2.merge([nh_blue, nh_green, nh_red, nh_alpha])
+        nh_output_path = os.path.join(staging_dir, f"{texture_name_label}_nh.png")
+        cv2.imwrite(nh_output_path, nh_texture)
+        print(f"Saved nh texture: {nh_output_path}")
 
-        
+    def save_diffuse_texture(self, texture_name_label, staging_dir, diff_texture):
+        """Saves the diffuse texture."""
+        if diff_texture is None:
+            return
+        diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
+        cv2.imwrite(diff_output_path, diff_texture)
+        print(f"Saved diffuse texture: {diff_output_path}")
 
-        if diff_texture is not None and arm_texture is not None and is_ltex_record(ltex_name):
-            
-            d_red_channel = diff_texture[:, :, 0]  # Red channel
-            d_green_channel = diff_texture[:, :, 1]  # Green channel
-            d_blue_channel = diff_texture[:, :, 2]  # Blue channel
-            d_alpha_channel = arm_texture[:, :, 1]           # Alpha channel
+    def create_diffparam_texture(self, texture_name_label, staging_dir, diff_texture, arm_texture):
+        """Creates and saves the optional diffparam texture."""
+        if diff_texture is None or arm_texture is None:
+            return
+        d_red = self.convert_to_8bit_single_channel(diff_texture[:, :, 0])  # Red
+        d_green = self.convert_to_8bit_single_channel(diff_texture[:, :, 1])  # Green
+        d_blue = self.convert_to_8bit_single_channel(diff_texture[:, :, 2])  # Blue
+        d_alpha = self.convert_to_8bit_single_channel(arm_texture[:, :, 1])  # Green
 
-            d_blue_channel = self.convert_to_8bit_single_channel(d_blue_channel)
-            d_green_channel = self.convert_to_8bit_single_channel(d_green_channel)
-            d_red_channel = self.convert_to_8bit_single_channel(d_red_channel)
+        # Combine into a single texture
+        diffparam_texture = cv2.merge([d_red, d_green, d_blue, d_alpha])
+        diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
+        cv2.imwrite(diffparam_output_path, diffparam_texture)
+        print(f"Saved diffparam texture: {diffparam_output_path}")
 
-
-            # Ensure all channels have the same dimensions
-            d_alpha_channel = cv2.resize(d_alpha_channel, (d_blue_channel.shape[1], d_blue_channel.shape[0]))
-
-            # Ensure all channels have the same data type
-            d_alpha_channel = alpha_channel.astype(d_blue_channel.dtype)
-
-            # Merge RGB from diff_texture and Alpha from rough_texture
-            diffparam_texture = cv2.merge([d_red_channel, d_green_channel, d_blue_channel, d_alpha_channel])
-
-            #print(diffparam_texture[0, 0])  # Print the pixel at (0, 0)
-
-            # Save the diffparam texture
-            diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
-            os.makedirs(staging_dir, exist_ok=True)
-            cv2.imwrite(diffparam_output_path, diffparam_texture)
-            print(f"Saved diffparam {diffparam_output_path}")
-
-        #messagebox.showinfo("Successfully created PARAM AND NORM textures for ", f"Texture '{texture_name_label}")
 
 
 # Main
