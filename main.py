@@ -9,6 +9,7 @@ import re
 import cv2
 import numpy as np
 import locale
+import hashlib
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
 from tkinter import messagebox, ttk
 from PIL import Image, ImageTk
@@ -99,6 +100,7 @@ def save_database(db):
 CACHE_FILE = "api_cache.json"
 
 TARGET_FOLDER = "staging/textures/"  # Replace with the actual folder path
+OVERLAY_FOLDER ="staging/overlay/"
 
 def load_api_cache():
     if os.path.exists(CACHE_FILE):
@@ -254,6 +256,11 @@ class TextureTagger:
         self.download_frame.place(relx=relscale, rely=0.0, anchor="ne", y=offset)
 
         #self.download_button.grid(row=0, column=0, pady=10)
+
+         # Add "DOWNLOAD ALL" button
+        self.add_all_to_queue_button = Button(self.download_frame, text="DOWNLOAD ALL", command=self.add_all_to_queue)
+        self.add_all_to_queue_button.grid(row=0, column=0, pady=10, sticky="W")
+
 
         # Add "Add to Queue" button
         self.add_to_queue_button = Button(self.download_frame, text="Add to Queue", command=self.add_to_queue)
@@ -453,20 +460,6 @@ class TextureTagger:
         self.next_thumbnails_button = Button(thumb_button_frame, text="Next Thumbnails", command=self.next_thumbnails)
         self.next_thumbnails_button.grid(row=0, column=2, padx=10)
        
-       
-
-   
-    def update_texture_label(self, texture_name):
-        """Change background color if the file exists."""
-
-        # Construct the file path
-        file_path = os.path.join(TARGET_FOLDER, texture_name)
-
-        # Check if the file exists and update the background color
-        if os.path.isfile(file_path):
-            self.texture_name_label.config(bg="green")  # Set background to green
-        else:
-            self.texture_name_label.config(bg=self.default_bg)  # Reset background to default (None)
 
     def autocomplete(self, entered_text):
         """Filters the texture list based on the entered text"""
@@ -671,6 +664,7 @@ class TextureTagger:
 
         # Retrieve selected thumbnails for the current texture
         selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        #print("PATH: ", texture_path)
         #print(f"Selected thumbnails: {selected_thumbnails}")
 
         # Set a default selected slot if none is set or out of range
@@ -975,6 +969,7 @@ class TextureTagger:
 
         # Construct the file path
         file_path = os.path.join(TARGET_FOLDER, texture_name)
+        #print("JOIN2: ", file_path)
 
         # Check if the file exists and update the background color
         if os.path.isfile(file_path):
@@ -983,9 +978,10 @@ class TextureTagger:
             self.texture_name_label.config(bg=self.default_bg)  # Reset background to default (None)
 
     def display_texture(self, entered_texture_name=None):
-        """Update the texture based on the user input"""
+        """Update the texture based on the user input."""
         texture_path = None
 
+        # Determine the texture path based on the user input or the current index
         if entered_texture_name is not None:
             for path in self.filtered_texture_paths:
                 if os.path.basename(path).startswith(entered_texture_name):
@@ -993,15 +989,13 @@ class TextureTagger:
                     break
             if texture_path is None:
                 print(f"Texture not found: {entered_texture_name}")
-                self.texture_name_label.config(text=f"Texture: Not Found")
+                self.texture_name_label.config(text="Texture: Not Found")
                 self.image_label.config(image=None)  # Clear image
                 return
         else:
             texture_path = self.filtered_texture_paths[self.current_index]
 
         texture_name = os.path.basename(texture_path)
-        print(texture_path)
-        print(texture_name)
 
         # Update the texture name label
         self.texture_name_label.config(text=f"Texture: {texture_name}")
@@ -1009,69 +1003,74 @@ class TextureTagger:
         texture_name_result = texture_name.replace("_result", "")
         self.update_texture_label(texture_name_result)
 
-        # Load the original image using OpenCV
-        image = cv2.imread(texture_path, cv2.IMREAD_UNCHANGED)
+        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
 
-        if image is None:
-            print(f"Failed to load image: {texture_path}")
+        # Ensure selected_slot is valid
+        if len(selected_thumbnails) > 0:
+            if not self.selected_slot or not isinstance(self.selected_slot, str) or len(self.selected_slot) != 1 or ord(self.selected_slot) - ord('A') >= len(selected_thumbnails):
+                self.selected_slot = 'A'  # Default to the first slot
+        else:
+            self.selected_slot = None  # Clear selected slot if no thumbnails are available
+
+        # Calculate slot_index only if self.selected_slot is valid
+        if self.selected_slot:
+            slot_index = ord(self.selected_slot) - ord('A')
+        else:
+            slot_index = None  # No valid index
+
+        # Validate slot_index before accessing selected_thumbnails
+        if slot_index is not None and 0 <= slot_index < len(selected_thumbnails):
+            #print("SLOT:", slot_index)
+            thumbnail_name = selected_thumbnails[slot_index]
+            thumbnail_name = os.path.basename(thumbnail_name).replace(" ", "_").lower()
+
+            # Construct the full paths for both _diff_overlay and _col_overlay
+
+            thumbnail_name = os.path.basename(thumbnail_name)
+            diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_diff_4k_overlay.png")
+            col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_col_4k_overlay.png")
+
+            print(diff_overlay_path)
+            print(col_overlay_path)
+
+            # Check for existence of overlay images
+            overlay_path = None
+            if os.path.exists(diff_overlay_path):
+                overlay_path = diff_overlay_path
+            elif os.path.exists(col_overlay_path):
+                overlay_path = col_overlay_path
+
+            if overlay_path:
+                print(f"Using overlay: {overlay_path}")
+            else:
+                print(f"No overlay match found for: {thumbnail_name}")
+        else:
+            #print("Invalid slot index or no thumbnails available.")
+            overlay_path = None
+
+        # Load the zoom image (used as the base image)
+        zoom_image = self.load_image(texture_path)
+        if zoom_image is None:
+            print(f"Failed to load zoom image: {texture_path}")
             return
 
-        # Convert the original image to RGBA format
-        if image.ndim == 2:  # Grayscale image
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGBA)
-        elif image.shape[2] == 3:  # BGR
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
-        elif image.shape[2] == 4:  # BGRA
-            image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
-
-        # Construct the file path for the overlaid image
-        overlay_path = os.path.join(TARGET_FOLDER, texture_name_result)
-
-        if os.path.isfile(overlay_path):
-            # Load the overlay image using OpenCV
-            overlay_image = cv2.imread(overlay_path, cv2.IMREAD_UNCHANGED)
-
-            if overlay_image is None:
+        # Load the overlay image if available
+        if overlay_path:
+            overlay_image = self.load_image(overlay_path)
+            if overlay_image is not None:
+                # Combine the overlay with the zoom image (as the base)
+                image = self.combine_overlay(zoom_image, overlay_image)
+            else:
                 print(f"Failed to load overlay image: {overlay_path}")
-                return
+                image = zoom_image
+        else:
+            image = zoom_image
 
-            # Handle bit depth: normalize 16-bit or 48-bit to 8-bit
-            if overlay_image.dtype == np.uint16:  # 16-bit or 48-bit image
-                overlay_image = (overlay_image / 256).astype(np.uint8)
-
-            # Convert the overlay image to RGBA format
-            if overlay_image.ndim == 2:  # Grayscale
-                overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_GRAY2RGBA)
-            elif overlay_image.shape[2] == 3:  # BGR
-                overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGR2RGBA)
-            elif overlay_image.shape[2] == 4:  # BGRA
-                overlay_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGRA2RGBA)
-
-            # Resize the overlay image to match the original image size
-            overlay_image_resized = cv2.resize(overlay_image, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR)
-
-            # Combine the images
-            combined_image = np.copy(image)  # Start with the original image
-            overlay_y_offset = image.shape[0] // 2  # Overlay at 50% vertical position
-            combined_image[overlay_y_offset:, :, :] = overlay_image_resized[overlay_y_offset:, :, :]
-
-            # Use the combined image for further processing
-            image = combined_image
-
-        # Save the full-resolution image for zoom (convert back to PIL for consistency if needed)
+        # Prepare the resized version (for display)
+        display_image = self.prepare_display_image(image)
         self.full_res_image = Image.fromarray(image)
-
-        # Resize the final image to fit the display
-        base_height = 300
-        aspect_ratio = image.shape[1] / image.shape[0]
-        new_width = int(base_height * aspect_ratio)
-        display_image = cv2.resize(image, (new_width, base_height), interpolation=cv2.INTER_LINEAR)
-
-        # Convert back to PIL for Tkinter compatibility
-        display_image = Image.fromarray(display_image)
-
         # Save the display size for zoom preview calculations
-        self.display_image_size = (new_width, base_height)
+        self.display_image_size = display_image.size
 
         # Display the image
         photo = ImageTk.PhotoImage(display_image)
@@ -1086,6 +1085,48 @@ class TextureTagger:
 
         # Display thumbnails of related textures
         self.display_thumbnails()
+
+
+    def load_image(self, image_path):
+        """Load and process an image if it exists."""
+        if os.path.isfile(image_path):
+            image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+            if image is None:
+                print(f"Failed to load image: {image_path}")
+                return None
+
+            # Normalize bit depth if needed (for overlays, e.g., 16-bit images)
+            if image.dtype == np.uint16:  # 16-bit or 48-bit image
+                image = (image / 256).astype(np.uint8)
+
+            # Convert to RGBA
+            if image.ndim == 2:  # Grayscale
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGBA)
+            elif image.shape[2] == 3:  # BGR
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
+            elif image.shape[2] == 4:  # BGRA
+                image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
+
+            return image
+        return None
+
+    def combine_overlay(self, base_image, overlay_image):
+        """Combine overlay image with the base image (zoom image)."""
+        combined_image = np.copy(base_image)  # Start with the base image (zoom image)
+        overlay_y_offset = base_image.shape[0] // 2  # Overlay at 50% vertical position
+        combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:, :, :]
+        return combined_image
+
+    def prepare_display_image(self, image):
+        """Resize the image for display while preserving aspect ratio."""
+        base_height = 300
+        aspect_ratio = image.shape[1] / image.shape[0]
+        new_width = int(base_height * aspect_ratio)
+        display_image = cv2.resize(image, (new_width, base_height), interpolation=cv2.INTER_LINEAR)
+
+        # Convert to PIL for Tkinter compatibility
+        return Image.fromarray(display_image)
+
 
 
 
@@ -1291,7 +1332,43 @@ class TextureTagger:
 
         return matching_textures
 
-    
+    def add_all_to_queue(self):
+        """Add all textures and their selected thumbnails to the download queue, with confirmation."""
+        if not self.filtered_texture_paths:
+            messagebox.showerror("Error", "No textures available to add to the queue.")
+            return
+
+        for texture_path in self.filtered_texture_paths:
+            selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+
+            # Ensure there are selected thumbnails for the texture
+            if not selected_thumbnails:
+                print(f"[DEBUG] No thumbnails found for texture: {texture_path}")
+                continue
+
+            for slot_index, thumbnail_name in enumerate(selected_thumbnails):
+                texture_name_label = os.path.basename(texture_path).replace(".png", "")
+                
+                # Add to the queue
+                self.download_queue.append((texture_path, thumbnail_name, texture_name_label))
+
+        # Confirmation dialog
+        confirm = messagebox.askyesno(
+            "Confirm Add All",
+            f"This will add {len(self.download_queue)} textures to the queue. Do you want to proceed?"
+        )
+        if not confirm:
+            return
+
+        # Print debug information
+        print(f"[DEBUG] Added all textures to queue. Current Queue Length: {len(self.download_queue)}")
+
+        # Start processing the queue if idle
+        if not self.currently_downloading:
+            self.process_queue()
+
+        self.update_progress_label()
+
 
     def add_to_queue(self):
         """Add the selected thumbnail and texture label to the download queue."""
@@ -1397,7 +1474,7 @@ class TextureTagger:
         next_item = self.download_queue.pop(0)
         next_texture, next_thumbnail, next_texture_name_label = next_item
 
-        #print("DEBUGVVVVV", next_texture)
+        #print("DEBUG", next_texture)
 
         # Move this item to 'in progress'
         self.in_progress.append(next_item)
@@ -1453,24 +1530,28 @@ class TextureTagger:
                 return key
         return None  # Return None if no match is found
    
+    def calculate_md5(self, file_path):
+        """Calculate the MD5 hash of a file."""
+        hash_md5 = hashlib.md5()
+        try:
+            with open(file_path, "rb") as file:
+                for chunk in iter(lambda: file.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except FileNotFoundError:
+            return None
+
     def _perform_download(self, texture_path, thumbnail_name, texture_name_label):
         """Perform the actual download process for a specific texture and thumbnail."""
         try:
-            
-            #print(texture_path)
-            #print(thumbnail_name)
-            #print(texture_name_label)
             texture_id = thumbnail_name
-
             texture_id_download = self.get_key_by_name(self.all_assets, thumbnail_name)
 
             texture_path = os.path.normpath(texture_path.strip())
             texture_name_label = texture_name_label.strip()
-            #thumbnail_name = thumbnail_name.strip()
 
             # Construct the download URL
             url = f"https://api.polyhaven.com/files/{texture_id_download}"
-            #print(":",url,":")
 
             # Create the "staging" folder if it doesn't exist
             if not os.path.exists("staging"):
@@ -1478,48 +1559,47 @@ class TextureTagger:
             
             # Fetch texture metadata
             data = requests.get(url)
-            #print(data.json())
             if data.status_code != 200:
                 messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
                 return
-            
-      
 
-            # Extract URLs for downloading texture files
-            texture_urls = self.extract_urls(data.json())
+            # Extract URLs and MD5 checksums
+            texture_files = self.extract_files_with_md5(data.json())
 
-            # Define the required file types
+            # Filter files based on required file types
             required_files = ["_diff_4k.png", "_color_4k.png", "_nor_dx_4k.png", "_arm_4k.png", "_disp_4k.png", "_height_4k.png"]
+            filtered_files = {
+                file_info['url']: file_info['md5']
+                for file_info in texture_files
+                if any(required_file in file_info['url'] for required_file in required_files)
+            }
 
-            # Filter the URLs based on the required file types
-            filtered_urls = [
-                texture_url for texture_url in texture_urls
-                if any(required_file in texture_url for required_file in required_files)
-            ]
-
-            # Check if there are files to download
-            if not filtered_urls:
+            if not filtered_files:
                 messagebox.showerror("Error", f"No valid files to download for '{thumbnail_name}'.")
                 return
 
             # Set the progress bar maximum value
-            self.progress_bar["maximum"] = len(filtered_urls)
+            self.progress_bar["maximum"] = len(filtered_files)
 
             # Download files
-            for idx, texture_url in enumerate(filtered_urls):
+            for idx, (texture_url, md5_hash) in enumerate(filtered_files.items()):
                 # Update the progress bar
                 self.actual_progress = idx + 1
 
                 # Sanitize the URL to create a valid filename
                 sanitized_filename = self.sanitize_filename(texture_url)
+                file_path = os.path.join("staging", sanitized_filename)
+
+                # Check if the file already exists and matches the MD5 hash
+                if os.path.exists(file_path) and self.calculate_md5(file_path) == md5_hash:
+                    print(f"File already exists and matches MD5: {file_path}")
+                    continue
 
                 # Download the texture
                 response = requests.get(texture_url)
                 if response.status_code == 200:
-                    file_path = os.path.join("staging", sanitized_filename)
                     with open(file_path, "wb") as file:
                         file.write(response.content)
-                        #print(sanitized_filename)
                 else:
                     print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
@@ -1551,7 +1631,7 @@ class TextureTagger:
                 #print("[DEBUG] Added to completed_downloads:", repr(normalized_tuple))
             except Exception as e:
                 print(f"[DEBUG] Error during in_progress removal or completion update: {e}")
-            
+
             # Check if there are more items in the queue
             if self.download_queue:
                 # Process the next item in the queue
@@ -1567,6 +1647,20 @@ class TextureTagger:
 
             # Ensure the UI is updated
             self.root.update_idletasks()
+
+    def extract_files_with_md5(self, json_data):
+        """Extract URLs and their MD5 hashes from the JSON response."""
+        files_with_md5 = []
+        if isinstance(json_data, dict):
+            for key, value in json_data.items():
+                if key == "url" and "md5" in json_data:
+                    files_with_md5.append({"url": value, "md5": json_data["md5"]})
+                elif isinstance(value, dict) or isinstance(value, list):
+                    files_with_md5.extend(self.extract_files_with_md5(value))
+        elif isinstance(json_data, list):
+            for item in json_data:
+                files_with_md5.extend(self.extract_files_with_md5(item))
+        return files_with_md5
 
     def extract_urls(self, json_data):
         """
@@ -1700,12 +1794,8 @@ class TextureTagger:
         # Create textures
         self.create_param_texture(texture_name_label, staging_dir, arm_texture)
         self.create_nh_texture(texture_name_label, staging_dir, nor_texture, disp_texture)
-        self.save_diffuse_texture(texture_name_label, staging_dir, diff_texture)
+        self.process_and_save_diff_textures(texture_name_label, staging_dir, diff_texture, arm_texture)
 
-        # Optional: Create diffparam texture if conditions are met
-        self.create_diffparam_texture(texture_name_label, staging_dir, diff_texture, arm_texture)
-
-    # --- Modular Functions ---
     def create_param_texture(self, texture_name_label, staging_dir, arm_texture):
         """Creates and saves the _param texture."""
         if arm_texture is None:
@@ -1736,28 +1826,68 @@ class TextureTagger:
         cv2.imwrite(nh_output_path, nh_texture)
         print(f"Saved nh texture: {nh_output_path}")
 
-    def save_diffuse_texture(self, texture_name_label, staging_dir, diff_texture):
-        """Saves the diffuse texture."""
+    def process_and_save_diff_textures(self, texture_name_label, staging_dir, diff_texture, arm_texture):
+        """
+        Processes and saves textures: diffuse (converted to 8-bit), diffparam, overlay (resized), and zoom (original size).
+        
+        Args:
+            texture_name_label (str): Base name for the textures.
+            staging_dir (str): Directory to save the textures.
+            diff_texture (np.ndarray): The diffuse texture.
+            arm_texture (np.ndarray): The ARM texture.
+        """
         if diff_texture is None:
             return
-        diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
-        cv2.imwrite(diff_output_path, diff_texture)
-        print(f"Saved diffuse texture: {diff_output_path}")
 
-    def create_diffparam_texture(self, texture_name_label, staging_dir, diff_texture, arm_texture):
-        """Creates and saves the optional diffparam texture."""
-        if diff_texture is None or arm_texture is None:
-            return
+
+        # Convert each channel of the diffuse texture to 8-bit
         d_red = self.convert_to_8bit_single_channel(diff_texture[:, :, 0])  # Red
         d_green = self.convert_to_8bit_single_channel(diff_texture[:, :, 1])  # Green
         d_blue = self.convert_to_8bit_single_channel(diff_texture[:, :, 2])  # Blue
-        d_alpha = self.convert_to_8bit_single_channel(arm_texture[:, :, 1])  # Green
+        #print("Converted diffuse texture channels to 8-bit.")
 
-        # Combine into a single texture
-        diffparam_texture = cv2.merge([d_red, d_green, d_blue, d_alpha])
-        diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
-        cv2.imwrite(diffparam_output_path, diffparam_texture)
-        print(f"Saved diffparam texture: {diffparam_output_path}")
+        # Combine the channels into an 8-bit diffuse texture
+        diff_texture_8bit = cv2.merge([d_red, d_green, d_blue])
+
+        # Save the diffuse texture
+        diff_output_path = os.path.join(staging_dir, f"{texture_name_label}.png")
+        cv2.imwrite(diff_output_path, diff_texture_8bit)
+        print(f"Saved diffuse texture: {diff_output_path}")
+
+        # Path to the results file (assumes it's in the current working directory)
+        results_file_path = f"{texture_name_label}_result.png"
+
+        # Retrieve target size from the results file
+        if not os.path.isfile(results_file_path):
+            print(f"Error: Results file not found: {results_file_path}")
+            return
+
+        # Load the results image to get its size
+        results_image = cv2.imread(results_file_path, cv2.IMREAD_UNCHANGED)
+        if results_image is None:
+            print(f"Error: Failed to load results image: {results_file_path}")
+            return
+
+        target_size = (results_image.shape[1], results_image.shape[0])  # (width, height)
+        print(f"Retrieved target size from results file: {target_size}")
+
+        # Save the overlay texture (resized)
+        overlay_texture = cv2.resize(diff_texture_8bit, target_size, interpolation=cv2.INTER_LINEAR)
+        overlay_name_path = os.path.basename(texture_name_label)
+        overlay_output_path = os.path.join(OVERLAY_FOLDER, f"{overlay_name_path}_overlay.png")
+        cv2.imwrite(overlay_output_path, overlay_texture)
+        print(f"Saved overlay texture: {overlay_output_path}")
+
+        # If arm_texture is provided, create and save the diffparam texture
+        if arm_texture is not None:
+            # Convert the green channel of ARM texture to 8-bit for alpha
+            d_alpha = self.convert_to_8bit_single_channel(arm_texture[:, :, 1])  # Green (from ARM)
+
+            # Combine diffuse channels with alpha into diffparam texture
+            diffparam_texture = cv2.merge([d_red, d_green, d_blue, d_alpha])
+            diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
+            cv2.imwrite(diffparam_output_path, diffparam_texture)
+            print(f"Saved diffparam texture: {diffparam_output_path}")
 
 
 
