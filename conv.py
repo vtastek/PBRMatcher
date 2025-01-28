@@ -29,7 +29,7 @@ def convert_png_to_dxt(png_path):
         # Output to the same directory as the input PNG
         output_dir = os.path.dirname(png_path)
         output_path = os.path.splitext(png_path)[0] + ".dds"
-        args = [texconv_path, "-m", "1", "-y", "-f", dxt_format.upper(), "-o", output_dir, png_path]
+        args = [texconv_path, "-m", "0", "-y", "-f", dxt_format.upper(), "-o", output_dir, png_path]
         subprocess.run(args, check=True)
         print(f"Converted: {png_path} to {dxt_format.upper()}")
 
