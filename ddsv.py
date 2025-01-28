@@ -11,6 +11,15 @@ img_display = None
 original_img = None
 channels_selected = {"R": True, "G": True, "B": True, "A": True}
 
+def center_window(width, height):
+    """Centers the window on the screen."""
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = (screen_width // 2) - (width // 2)
+    y = (screen_height // 2) - (height // 2) - 50
+    root.geometry(f"{width}x{height}+{x}+{y}")
+
+
 def apply_channel_mask():
     """Applies the channel mask to the original image and updates the display."""
     global img_display, original_img
@@ -21,15 +30,25 @@ def apply_channel_mask():
     if original_img.mode not in ("RGBA", "RGB"):
         img_filtered = original_img  # Skip filtering for unsupported modes
     else:
+        # Split channels
         r, g, b, a = original_img.split() if original_img.mode == "RGBA" else (*original_img.split(), None)
         r = r if channels_selected["R"] else Image.new("L", original_img.size, 0)
         g = g if channels_selected["G"] else Image.new("L", original_img.size, 0)
         b = b if channels_selected["B"] else Image.new("L", original_img.size, 0)
-        if a:
-            a = a if channels_selected["A"] else Image.new("L", original_img.size, 255)  # Replace alpha with full opacity
-            img_filtered = Image.merge("RGBA", (r, g, b, a))
+
+        # Check if a single channel is selected
+        active_channels = [ch for ch in ["R", "G", "B", "A"] if channels_selected[ch]]
+        if len(active_channels) == 1:
+            single_channel = active_channels[0]
+            # Use grayscale data of the active channel
+            single_channel_data = {"R": r, "G": g, "B": b, "A": a}[single_channel]
+            img_filtered = Image.merge("RGBA" if a else "RGB", (single_channel_data,) * 3 + ((a,) if a else ()))
         else:
-            img_filtered = Image.merge("RGB", (r, g, b))
+            if a:
+                a = a if channels_selected["A"] else Image.new("L", original_img.size, 255)  # Replace alpha with full opacity
+                img_filtered = Image.merge("RGBA", (r, g, b, a))
+            else:
+                img_filtered = Image.merge("RGB", (r, g, b))
 
     # Resize the image for display if needed
     screen_width = root.winfo_screenwidth()
@@ -46,9 +65,13 @@ def apply_channel_mask():
     img_display = ImageTk.PhotoImage(img_display_resized)
 
     # Update the canvas
-    canvas.config(width=max_width, height=max_height)
+    canvas.config(width=img_display_resized.size[0], height=img_display_resized.size[1])
     canvas.delete("all")
     canvas.create_image(0, 0, anchor="nw", image=img_display)
+
+    # Resize the root window to fit the image width and height
+    center_window(img_display_resized.size[0], img_display_resized.size[1])
+
 
 def load_dds(file_path=None):
     """Loads a DDS file, displays its info, updates the status bar, and sets the title."""
@@ -95,9 +118,30 @@ def navigate_files(direction):
     load_dds(file_list[current_file_index])
 
 def toggle_channel(channel):
-    """Toggles the selected RGBA channel and refreshes the image display."""
-    channels_selected[channel] = not channels_selected[channel]
+    """Toggles the selected RGBA channel, and if only one channel is active, copies it to the others."""
+    channels_selected[channel] = channel_vars[channel].get()
+
+    # Check if exactly one RGB channel is selected
+    active_channels = [ch for ch in ["R", "G", "B"] if channels_selected[ch]]
+    if len(active_channels) == 1:
+        active_channel = active_channels[0]
+
+        # Copy the active channel's data to the other channels
+        global original_img
+        if original_img and original_img.mode in ("RGBA", "RGB"):
+            r, g, b, a = original_img.split() if original_img.mode == "RGBA" else (*original_img.split(), None)
+            selected_channel_data = {"R": r, "G": g, "B": b}[active_channel]
+
+            # Duplicate the active channel's data to the other channels
+            r, g, b = (selected_channel_data, selected_channel_data, selected_channel_data)
+            if a:
+                original_img = Image.merge("RGBA", (r, g, b, a))
+            else:
+                original_img = Image.merge("RGB", (r, g, b))
+
+    # Refresh the display with the updated image
     apply_channel_mask()
+
 
 def run_texdiag_command(command, file_path):
     """Runs a specified texdiag command on the DDS file and returns parsed output."""
@@ -142,9 +186,17 @@ def parse_texdiag_output(info_lines):
     format_ = parsed_info.get("format", "?")
     return f"Resolution: {resolution} | Mipmaps: {mipmaps} | Format: {format_}"
 
+def update_status_bar_position():
+    status_bar_width = root.winfo_width()
+    status_bar_height = status_bar.winfo_reqheight()
+    status_bar.place(x=0, y=root.winfo_height() - status_bar_height, width=status_bar_width)
+
 # Create the main Tkinter window
 root = tk.Tk()
 root.title("DDS Viewer with TexDiag")
+
+root.bind("<Configure>", lambda event: update_status_bar_position())
+
 
 # Create a frame for the canvas and buttons
 frame = tk.Frame(root)
@@ -157,8 +209,7 @@ canvas.pack(fill=tk.BOTH, expand=True)
 # Status bar to show image info
 status_text = tk.StringVar()
 status_text.set("No file loaded")
-status_bar = tk.Label(root, textvariable=status_text, bd=1, relief=tk.SUNKEN, anchor=tk.W)
-status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+status_bar = tk.Label(root, textvariable=status_text, bd=1, relief="sunken", anchor="w", bg="lightgray")
 
 # Menu for file operations
 menu = tk.Menu(root)
@@ -171,11 +222,27 @@ file_menu.add_command(label="Open DDS...", command=load_dds)
 file_menu.add_separator()
 file_menu.add_command(label="Exit", command=root.quit)
 
+# Create BooleanVars for each channel
+channel_vars = {
+    "R": tk.BooleanVar(value=True),
+    "G": tk.BooleanVar(value=True),
+    "B": tk.BooleanVar(value=True),
+    "A": tk.BooleanVar(value=True),
+}
+
 # RGBA toggle buttons
 channel_menu = tk.Menu(menu, tearoff=0)
 menu.add_cascade(label="Channels", menu=channel_menu)
+
+# Create checkbuttons for each channel
 for channel in ["R", "G", "B", "A"]:
-    channel_menu.add_checkbutton(label=channel, onvalue=True, offvalue=False, command=lambda c=channel: toggle_channel(c))
+    channel_menu.add_checkbutton(
+        label=channel,
+        variable=channel_vars[channel],
+        onvalue=True,
+        offvalue=False,
+        command=lambda c=channel: toggle_channel(c),
+    )
 
 # Key bindings for left and right arrow keys
 root.bind("<Left>", lambda event: navigate_files(-1))
