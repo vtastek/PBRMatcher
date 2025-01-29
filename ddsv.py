@@ -3,6 +3,13 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk, ImageOps
 import subprocess
 import os
+import ctypes
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)  # Enable DPI awareness
+except AttributeError:
+    pass  # Not supported on some older Windows versions
+
 
 # Global variables to track folder files, current file index, and channel selection
 file_list = []
