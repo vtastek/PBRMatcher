@@ -10,10 +10,20 @@ import cv2
 import numpy as np
 import locale
 import hashlib
+import ctypes
 from tkinter import Tk, Label, Entry, Button, Listbox, END, Frame
 from tkinter import messagebox, ttk
+from tkinter import font
+from tkinter import simpledialog, Toplevel
 from PIL import Image, ImageTk
 from urllib.parse import urlparse
+
+# Enable DPI awareness
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI awareness
+    scale_factor = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100  # Get scaling factor
+except AttributeError:
+    scale_factor = 1  # Default if unsupported
 
 # Initialize or load JSON database
 DB_FILE = "db.json"
@@ -207,75 +217,147 @@ class TextureTagger:
         self.root.configure(bg="#999999")
 
         # Set a fixed window size
-        self.root.geometry("1600x960")
+        #self.root.geometry("1600x960")
 
-        self.center_window(1600, 960)
+        # Scale the window size based on DPI
+        base_width, base_height = 1600, 960  # Base size (adjust as needed)
+        scaled_width = int(base_width * scale_factor)
+        scaled_height = int(base_height * scale_factor)
+        self.root.geometry(f"{scaled_width}x{scaled_height}")
+
+        # Retrieve system default fonts dynamically
+        #default_font = font.nametofont("TkDefaultFont")
+        text_font = font.nametofont("TkTextFont")
+        button_font = font.nametofont("TkTextFont")
+
+        # Get actual sizes before modification
+        default_size = text_font.actual("size")
+        text_size = text_font.actual("size")
+        button_size = text_font.actual("size")
+
+        # Scale fonts based on DPI
+        text_font.configure(size=int(text_size * scale_factor + 1))
+        button_font.configure(size=int(text_size * scale_factor))
+        default_font = text_font
+        
+        self.center_window(scaled_width, scaled_height)
+        
 
 
-        # Prevent window resizing
+        # Prevent window resizing 
         self.root.resizable(False, False)
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
 
-        self.main = Frame(root)
-        self.main.configure(bg="#999999")
-        self.main.pack()
+        # Create main frame and make it expand
+        self.main = Frame(self.root, bg="#999999")
+        self.main.grid(sticky="nsew")
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        self.main.columnconfigure(0, weight=1)
+        self.main.rowconfigure(0, weight=1)
+
+        # Create gridA and make it expand fully
+        self.gridA = Frame(self.main, bg="#999999") 
+        self.gridA.grid(row=0, column=0, sticky="nsew")  
+        self.main.rowconfigure(0, weight=1)
+        self.main.columnconfigure(0, weight=1)
+
+        # Add sub-frames inside gridA
+        self.gridA1 = Frame(self.gridA, bg="#999999")  # Content-sized
+        self.gridA2 = Frame(self.gridA, bg="#999999")  # Expanding
+        self.gridA3 = Frame(self.gridA, bg="#999999")  # Centered
+        self.gridA4 = Frame(self.gridA, bg="#999999")  # Expanding
+        self.gridA5 = Frame(self.gridA, bg="#999999")  # Content-sized
+
+        # Set a fixed width for gridA3 (so it does NOT change with content)
+        self.gridA3.grid_propagate(False)  # Prevents resizing to fit content
+
+        # Positioning Frames in a Single Row
+        self.gridA1.grid(column=0, row=0, sticky="ns", padx=5)  # No width expansion
+        self.gridA2.grid(column=1, row=0, sticky="nsew")  # Expands
+        self.gridA3.grid(column=2, row=0, sticky="nsew")  # Centered
+        self.gridA4.grid(column=3, row=0, sticky="nsew")  # Expands
+        self.gridA5.grid(column=4, row=0, sticky="ns", padx=5)  # No width expansion
+
+        # Configure column weights
+        self.gridA.columnconfigure(0, weight=0, minsize=50)  # gridA1: No expansion, min width
+        self.gridA.columnconfigure(1, weight=1, minsize=400)  # gridA2: Expands
+        self.gridA.columnconfigure(2, weight=2)  # gridA3: Centered (more space)
+        self.gridA.columnconfigure(3, weight=1, minsize=400)  # gridA4: Expands
+        self.gridA.columnconfigure(4, weight=0, minsize=50)  # gridA5: No expansion, min width
+
+        self.gridA4.columnconfigure(0, weight=1)
+        self.gridA4.rowconfigure(0, weight=1)
+
+        # Add gridB and gridC below gridA
+        self.gridB = Frame(self.main, bg="#999999")
+        self.gridB.grid(column=0, row=1, sticky="nsew")  
+        self.gridC = Frame(self.main, bg="#999999")
+        self.gridC.grid(column=0, row=2, sticky="nsew")  
+
+        # Allow gridB and gridC to expand
+        self.main.rowconfigure(1, weight=1)
+        self.main.rowconfigure(2, weight=1)
+
+
+
 
         # GUI Elements
-        self.texture_name_label = Label(self.main, text="", font=("Arial", 7), pady=10)
+        self.texture_name_label = Label(self.gridA3, text="", font=("Arial", int(7 * scale_factor)), pady=10)
         self.texture_name_label.bind("<Button-1>", self.show_entry) #bind click
         self.texture_name_label.pack()
+        self.texture_name_label.lift()
         self.default_bg = self.texture_name_label.cget("bg")  # Get the current default background
 
-        self.entry_container = Frame(self.root, width=200, height=150)  # Container for entry and list
-        self.entry_container.place(relx=0.438, rely=0.045) #pack the container AFTER the label
+        self.entry_container = Frame(self.gridA3)  # Container for entry and list
+        self.entry_container.place(relx=0.25, rely=0.01) #pack the container AFTER the label
         self.entry_container.lift()
 
 
-        self.label_frame = Frame(self.main, bg="black")
+        self.label_frame = Frame(self.gridA3, bg="black")
         self.label_frame.pack()
         self.image_label = Label(self.label_frame, bg="black")
-        self.image_label.pack(fill="both", padx=100, pady=10)
+        self.image_label.pack(fill="both", padx=10, pady=10)
         self.image_label.bind("<Motion>", self.show_zoom_preview)
         self.image_label.bind("<Leave>", self.hide_zoom_preview)
 
 
-        self.previous_button = Button(self.main, width=10, text="Previous", command=self.previous_texture)
-        self.previous_button.place(relx=0.0, rely=0.1, anchor="nw", x=5)
-        self.previous_button.place(relheight=0.1) 
-        #self.previous_button.pack(side="left", padx=5)
+        self.previous_button = Button(self.gridA1, font=button_font, width=int(7 * scale_factor), text="Previous", command=self.previous_texture)
+        self.previous_button.pack(padx=10, pady=5, expand=True)
 
-        self.next_button = Button(self.main, width=10, text="Next", command=self.next_texture)
-        self.next_button.place(relx=1.0, rely=0.1, anchor="ne", x=-5)
-        self.next_button.place(relheight=0.1) 
-        #self.next_button.pack(side="right", padx=5)
+        self.next_button = Button(self.gridA5, font=button_font, width=int(7 * scale_factor), text="Next", command=self.next_texture)
+        self.next_button.pack(padx=10, pady=5, expand=True)
 
         # Create the download frame and add the button and progress bar
-        self.download_frame = Frame(self.main)
+        self.download_frame = Frame(self.gridA4, padx=5, pady=15)
         offset = 16  # Fixed offset from top (y=16)
         relscale = 0.9
 
-        self.download_frame.place(relx=relscale, rely=0.0, anchor="ne", y=offset)
+        self.download_frame.grid(row=0, column=0, pady=10, sticky="n")  # Middle column, centered at the top
+
 
         #self.download_button.grid(row=0, column=0, pady=10)
 
          # Add "DOWNLOAD ALL" button
-        self.add_all_to_queue_button = Button(self.download_frame, text="DOWNLOAD ALL", command=self.add_all_to_queue)
-        self.add_all_to_queue_button.grid(row=0, column=0, pady=10, sticky="W")
+        self.add_all_to_queue_button = Button(self.download_frame, font=7, anchor="center", text="DOWNLOAD ALL", command=self.add_all_to_queue)
+        self.add_all_to_queue_button.grid(row=0, column=0, padx=5, pady=10, sticky="nwse")
 
 
         # Add "Add to Queue" button
-        self.add_to_queue_button = Button(self.download_frame, text="Add to Queue", command=self.add_to_queue)
-        self.add_to_queue_button.grid(row=0, column=0, pady=10)
+        self.add_to_queue_button = Button(self.download_frame, font=7, anchor="center", text="Add to Queue", command=self.add_to_queue)
+        self.add_to_queue_button.grid(row=0, column=1, padx=5, pady=10, sticky="nwse")
 
         # Add "Show Queue" button
-        self.show_queue_button = Button(self.download_frame, text="Show Queue", command=self.show_queue)
-        self.show_queue_button.grid(row=0, column=0, pady=10, sticky="E")
+        self.show_queue_button = Button(self.download_frame, font=7, anchor="center", text="Show Queue", command=self.show_queue)
+        self.show_queue_button.grid(row=0, column=2, padx=5, pady=10, sticky="nwse")
 
         # Add a Progressbar widget to the GUI
-        self.progress_label = ttk.Label(self.download_frame, text="Completed: 0, In Progress: 0, Pending: 0")
-        self.progress_label.grid(row=1, column=0, pady=10)
+        self.progress_label = ttk.Label(self.download_frame, font=9, text="Completed: 0, In Progress: 0, Pending: 0")
+        self.progress_label.grid(row=1, columnspan=3, pady=10)
 
-        self.progress_bar_dummy= ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
-        self.progress_bar_dummy.grid(row=2, column=0, pady=5)
+        self.progress_bar= ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
+        self.progress_bar.grid(row=2, columnspan=3, pady=5)
 
         # Queue and Progress Tracking
         self.completed_downloads = []  # To track items in the queue
@@ -285,7 +367,7 @@ class TextureTagger:
         
         # Add frame for slot buttons and preview
         self.slot_frame = Frame(self.download_frame)
-        self.slot_frame.grid(row=3, column=0, pady=5)
+        self.slot_frame.grid(row=3, columnspan=3, pady=5)
 
         self.selected_slot = None
         self.slot_buttons = {}
@@ -297,7 +379,8 @@ class TextureTagger:
             button = Button(
                 self.slot_frame,
                 text=slot_names[slot],
-                width=5,
+                width= 5,
+                font=7,
                 command=lambda slot=slot_names[slot]: self.switch_slot(slot)
             )
 
@@ -308,27 +391,13 @@ class TextureTagger:
 
 
         # Add single preview area
-        self.preview_label = Label(self.slot_frame, text="No Preview", bg="gray")
-        self.preview_label.grid(row=5, column=0, pady=5, columnspan=4)  # Span across all columns for alignment
+        self.preview_label = Label(self.slot_frame, font=default_font, text="No Preview", bg="gray")
+        self.preview_label.grid(row=5, column=0, pady=5, columnspan=3)  # Span across all columns for alignment
 
         self.root.update_idletasks()
 
-
-        self.progress_bar = ttk.Progressbar(root, orient="horizontal", length=300, mode="determinate")
-        frame_x = self.root.winfo_width() * relscale  # 90% of root's width
-        
-        # Adjust for the "ne" anchor
-        frame_x -= self.download_frame.winfo_width()  # Align by the right edge
-
-        # Add the progress bar's position inside the frame
-        dummy_x = frame_x + self.progress_bar_dummy.winfo_x()
-        dummy_y = offset + self.progress_bar_dummy.winfo_y()
-
-        # Place the root-level progress bar at the calculated position
-        self.progress_bar.place(x=dummy_x, y=dummy_y, width=self.progress_bar_dummy.winfo_width())
-
         # Create a frame for tags list and buttons
-        self.tags_frame = Frame(self.main)
+        self.tags_frame = Frame(self.gridA3)
         self.tags_frame.pack()
 
         self.tags_listbox = Listbox(self.tags_frame, selectmode="multiple", height=5)
@@ -338,21 +407,21 @@ class TextureTagger:
         self.buttons_frame = Frame(self.tags_frame)
         self.buttons_frame.grid(row=0, column=1, padx=10)
 
-        self.add_tag_button = Button(self.buttons_frame, text="Add Tag", command=self.add_tag)
+        self.add_tag_button = Button(self.buttons_frame, font=7, text="Add Tag", command=self.add_tag)
         self.add_tag_button.pack(pady=5)
 
-        self.remove_tag_button = Button(self.buttons_frame, text="Remove Tag", command=self.remove_tag)
+        self.remove_tag_button = Button(self.buttons_frame, font=7, text="Remove Tag", command=self.remove_tag)
         self.remove_tag_button.pack(pady=5)
 
-        self.tag_entry = Entry(self.main)
-        self.tag_entry.pack()
+        self.tag_entry = Entry(self.gridA3)
+        self.tag_entry.pack(pady=5)
 
         # Create a frame for togglable buttons
-        self.button_frame = Frame(self.main)
+        self.button_frame = Frame(self.gridB)
         self.button_frame.pack()
 
         # Frame for displaying thumbnails
-        self.thumbnail_frame = Frame(self.main, width=300, height=360, bg="black")
+        self.thumbnail_frame = Frame(self.gridB, width= int(455), height= int(555), bg="black")
         
         self.thumbnail_frame.pack(pady=10)
         self.thumbnail_frame.pack_propagate(False)
@@ -382,7 +451,7 @@ class TextureTagger:
         self.active_buttons = set()
   
         for index, (key, value) in enumerate(self.button_info.items()):
-            button = Button(self.button_frame, text=value, command=lambda key=key: self.toggle_button(key))
+            button = Button(self.button_frame, font=7, text=value, command=lambda key=key: self.toggle_button(key))
             button.grid(row=0, column=index, padx=10)
             self.buttons[key] = button
 
@@ -392,51 +461,51 @@ class TextureTagger:
             self.label_frames[key] = frame
 
             # Add the 'assigned' label
-            self.label_frames[f"{key}_assigned"] = Label(frame, text="0", fg="blue")
+            self.label_frames[f"{key}_assigned"] = Label(frame, text="0", fg="blue", font=5)
             self.label_frames[f"{key}_assigned"].pack(side="left")
 
             Label(frame, text="/").pack(side="left")
             
             # Add the 'tagged' label
-            self.label_frames[f"{key}_tagged"] = Label(frame, text="0", fg="green")
+            self.label_frames[f"{key}_tagged"] = Label(frame, font=5, text="0", fg="green")
             self.label_frames[f"{key}_tagged"].pack(side="left")
             
             Label(frame, text="/").pack(side="left")
             
             # Add the 'untagged' label
-            self.label_frames[f"{key}_untagged"] = Label(frame, text="0", fg="red")
+            self.label_frames[f"{key}_untagged"] = Label(frame, font=5, text="0", fg="red")
             self.label_frames[f"{key}_untagged"].pack(side="left")
 
 
-        self.misc_button = Button(self.button_frame, text="Misc", command=self.show_all_textures)
+        self.misc_button = Button(self.button_frame, font=7, text="Misc", command=self.show_all_textures)
         self.misc_button.grid(row=0, column=len(self.button_info), padx=10)
         
         self.misc_frame = Frame(self.button_frame)
         self.misc_frame.grid(row=1, column=len(self.button_info), padx=10)
         
-        self.misc_label_tagged = Label(self.misc_frame, text="0", fg="green")
+        self.misc_label_tagged = Label(self.misc_frame, font=5, text="0", fg="green")
         self.misc_label_tagged.pack(side="left")
         
         Label(self.misc_frame, text="/").pack(side="left")
         
-        self.misc_label_untagged = Label(self.misc_frame, text="0", fg="red")
+        self.misc_label_untagged = Label(self.misc_frame, font=5, text="0", fg="red")
         self.misc_label_untagged.pack(side="left")
 
-        self.all_button = Button(self.button_frame, text="All", command=self.toggle_all_buttons)
+        self.all_button = Button(self.button_frame, font=7, text="All", command=self.toggle_all_buttons)
         self.all_button.grid(row=0, column=len(self.button_info) + 1, padx=10)
 
-        self.selected_thumbnails_label = Label(self.main, text="Selected Thumbnails: 0", font=("Arial", 12))
+        self.selected_thumbnails_label = Label(self.gridC, text="Selected Thumbnails: 0", font=("Arial", 7))
         self.selected_thumbnails_label.pack(pady=5)
 
         self.all_frame = Frame(self.button_frame)
         self.all_frame.grid(row=1, column=len(self.button_info) + 1, padx=10)
 
-        self.all_label_tagged = Label(self.all_frame, text="0", fg="green")
+        self.all_label_tagged = Label(self.all_frame, font=5, text="0", fg="green")
         self.all_label_tagged.pack(side="left")
 
         Label(self.all_frame, text="/").pack(side="left")
 
-        self.all_label_untagged = Label(self.all_frame, text="0", fg="red")
+        self.all_label_untagged = Label(self.all_frame, font=5, text="0", fg="red")
         self.all_label_untagged.pack(side="left")
 
         # Display first texture
@@ -446,20 +515,20 @@ class TextureTagger:
 
         self.texture_name_entry.pack_forget()  # Start hidden
         self.autocomplete_list.pack_forget()  # Start hidden
+        self.scrollbar.pack_forget()  # Start hidden
 
 
 
-        thumb_button_frame = Frame(self.main)
+        thumb_button_frame = Frame(self.gridC)
         thumb_button_frame.pack()
    
-        self.previous_thumbnails_button = Button(thumb_button_frame, text="Previous Thumbnails", command=self.previous_thumbnails)
+        self.previous_thumbnails_button = Button(thumb_button_frame, font=7, text="Previous Thumbnails", command=self.previous_thumbnails)
         self.previous_thumbnails_button.grid(row=0, column=0, padx=10)
         # Page indicator label
-        self.page_indicator = Label(thumb_button_frame, text="-/-")
+        self.page_indicator = Label(thumb_button_frame, font=default_font, text="-/-")
         self.page_indicator.grid(row=0, column=1, padx=10)
-        self.next_thumbnails_button = Button(thumb_button_frame, text="Next Thumbnails", command=self.next_thumbnails)
+        self.next_thumbnails_button = Button(thumb_button_frame, font=7, text="Next Thumbnails", command=self.next_thumbnails)
         self.next_thumbnails_button.grid(row=0, column=2, padx=10)
-       
 
     def autocomplete(self, entered_text):
         """Filters the texture list based on the entered text"""
@@ -467,10 +536,28 @@ class TextureTagger:
 
     def show_entry(self, event):
         """Show the entry box and autocomplete list."""
-        self.entry_container.place(relx=0.44, rely=0.04, height=150, width=200)
-        self.texture_name_entry.place(x=0, y=10, width=200)
-        self.autocomplete_list.place(x=0, y=40, width=200, height=100)
+        self.entry_container.place(relx=0.25, rely=0.07, height= 400, width= 400)
+        self.texture_name_entry.place(x=0, y=15, width=400)
+        
+        entered_text = self.texture_name_entry.get()
+
+        matches = self.autocomplete(entered_text)
+        self.autocomplete_list.delete(0, tk.END)
+
+        if matches:
+            # Populate autocomplete list with matches
+            for match in matches:
+                self.autocomplete_list.insert(tk.END, match)
+
+            list_height = min(len(matches) * 20, 350)  # Adjust item height dynamically
+            self.scrollbar.place(x=385.0, y=45.0, width=15, height=list_height)
+            self.autocomplete_list.place(relx=0.0, rely=0.1, width=400, height=list_height)
+            
+
+        
+        self.entry_container.lift()
         self.autocomplete_list.lift()
+        self.scrollbar.lift()
 
         #print("focusentry")
         self.texture_name_entry.focus_set()
@@ -506,9 +593,9 @@ class TextureTagger:
 
         if event.keysym == 'Up':
             if current_selection:
-                new_index = max(0, current_selection[0] - 1)  # Move up in the list
+                new_index = max(0, current_selection[0] - 1)  # Move up
             else:
-                new_index = self.autocomplete_list.size() - 1  # Wrap to the last item
+                new_index = self.autocomplete_list.size() - 1  # Wrap to last item
         elif event.keysym == 'Down':
             if current_selection:
                 new_index = min(self.autocomplete_list.size() - 1, current_selection[0] + 1)  # Move down
@@ -520,9 +607,12 @@ class TextureTagger:
             self.autocomplete_list.selection_clear(0, tk.END)
             self.autocomplete_list.selection_set(new_index)
             self.autocomplete_list.activate(new_index)
+            self.autocomplete_list.see(new_index)  # Ensure visibility by scrolling
 
             # Update the current selection
             self.current_selection = self.autocomplete_list.get(new_index)
+
+
 
 
 
@@ -542,8 +632,13 @@ class TextureTagger:
             for match in matches:
                 self.autocomplete_list.insert(tk.END, match)
 
-            self.autocomplete_list.place(x=0, y=40, width=200, height=100)
+            list_height = min(len(matches) * 20, 350)  # Adjust item height dynamically
+            self.scrollbar.place(x=385.0, y=45.0, width=15, height=list_height)
+            
+
+            self.autocomplete_list.place(relx=0.0, rely=0.1, width=400, height=list_height)
             self.autocomplete_list.lift()
+            self.scrollbar.lift()
 
             # Reset selection to the first match
             self.autocomplete_list.selection_clear(0, tk.END)
@@ -586,14 +681,15 @@ class TextureTagger:
         """Shrink the autocomplete list to 1x1 size, then hide it."""
         self.autocomplete_list.place_forget()
         self.entry_container.place_forget()
+        self.scrollbar.place_forget()
         self.current_selection = None
 
 
 
     def create_autocomplete_entry(self):
         """Create the entry box and autocomplete list."""
-        self.entry_container.place(width=200, height=150)
-        self.texture_name_entry = ttk.Entry(self.entry_container, width=50)
+        self.entry_container.place(width=200, height=400)
+        self.texture_name_entry = ttk.Entry(self.entry_container, width=250, font=7)
         self.texture_name_entry.bind('<KeyRelease>', self.handle_keyrelease)
         self.texture_name_entry.bind('<Return>', self.on_entry_return)
         self.texture_name_entry.bind('<Up>', self.navigate_autocomplete)
@@ -601,15 +697,38 @@ class TextureTagger:
 
         #self.texture_name_entry.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
 
-        self.autocomplete_list = Listbox(
-            self.entry_container,
-            width=50,
-            height=5,
-            highlightthickness=0
-        )
-        self.autocomplete_list.place(x=0, y=40)
+        self.autocomplete_list = tk.Listbox(self.entry_container, height=10)  # Adjust as needed
+        self.scrollbar = tk.Scrollbar(self.entry_container, command=self.autocomplete_list.yview)
+        self.autocomplete_list.config(yscrollcommand=self.scrollbar.set)
+
+       
+
+
         self.autocomplete_list.bind('<<ListboxSelect>>', self.on_selected)
         #self.autocomplete_list.bind('<FocusOut>', self.hide_autocomplete_on_focus_out)
+
+        self.entry_container.place(relx=0.25, rely=0.07, height= 500, width= 400)
+        self.texture_name_entry.place(x=0, y=15, width=400)
+        
+        entered_text = self.texture_name_entry.get()
+
+        matches = self.autocomplete(entered_text)
+        self.autocomplete_list.delete(0, tk.END)
+
+        if matches:
+            # Populate autocomplete list with matches
+            for match in matches:
+                self.autocomplete_list.insert(tk.END, match)
+
+            list_height = min(len(matches) * 20, 350)  # Adjust item height dynamically
+             # Place the listbox and scrollbar together
+            self.scrollbar.place(x=385.0, y=45.0, width=15, height=list_height)  # Adjusted for proper alignment
+            self.autocomplete_list.place(relx=0.0, rely=0.1, width=400, height=list_height)
+            self.autocomplete_list.lift()
+            self.scrollbar.lift()
+
+
+    
 
         # Start shrunk and hidden
         self.shrink_and_hide_autocomplete()
@@ -705,12 +824,23 @@ class TextureTagger:
                 if os.path.exists(thumbnail_path):
                     try:
                         image = Image.open(thumbnail_path)
-                        image.thumbnail((256, 256))  # Resize for display
-                        thumb_photo = ImageTk.PhotoImage(image)
+
+                        # Get current dimensions
+                        width, height = image.size
+
+                        # Scale by 1.5x
+                        new_width = int(width * 1.5)
+                        new_height = int(height * 1.5)
+
+                        # Resize the image
+                        image_resized = image.resize((new_width, new_height), Image.Resampling.LANCZOS)  # Resizes with high-quality filtering
+                        
+
+                        thumb_photo = ImageTk.PhotoImage(image_resized)
                         self.preview_label.config(image=thumb_photo, text="")
                         self.preview_label.image = thumb_photo  # Prevent garbage collection
                     except Exception as e:
-                        print(f"Error opening thumbnail: {e}")
+                        print(f"Error opening : {e}")
                 else:
                     print(f"Thumbnail path not found: {thumbnail_path}")
             else:
@@ -747,7 +877,7 @@ class TextureTagger:
         #print(json.dumps(matching_textures, indent=4))
 
         if not paginated_textures:
-            no_results_label = Label(self.thumbnail_frame, text="No matching thumbnails found.", font=("Arial", 12))
+            no_results_label = Label(self.thumbnail_frame, text="No matching thumbnails found.", font=("Arial", int(12 * scale_factor)))
             no_results_label.pack(pady=10)
             self.update_selected_thumbnails_count()
             return
@@ -764,8 +894,19 @@ class TextureTagger:
                     # Fetch the thumbnail (use caching)
                     thumb_img = fetch_thumbnail(thumbnail_url)
                     if thumb_img:
-                        thumb_img.thumbnail((256, 256))  # Adjust thumbnail size for display
-                        thumb_photo = ImageTk.PhotoImage(thumb_img)
+                        thumb_img.thumbnail((512, 512))  # Adjust thumbnail size for display
+
+                        # Get current dimensions
+                        width, height = thumb_img.size
+
+                        # Scale by 1.5x
+                        new_width = int(width * 1.5)
+                        new_height = int(height * 1.5)
+
+                        # Resize the image
+                        thumb_resized = thumb_img.resize((new_width, new_height), Image.Resampling.LANCZOS)  # Resizes with high-quality filtering
+
+                        thumb_photo = ImageTk.PhotoImage(thumb_resized)
 
                         # Create a fixed-size container for thumbnail and tags
                         thumb_container = Frame(
@@ -781,7 +922,7 @@ class TextureTagger:
                         thumb_container.grid_propagate(False)  # Prevent resizing
 
                         # Display the thumbnail image
-                        thumb_label = Label(thumb_container, image=thumb_photo, bg="black")
+                        thumb_label = Label(thumb_container, image=thumb_photo, width=400, height=400, bg="black")
                         thumb_label.image = thumb_photo  # Keep reference to prevent garbage collection
                         thumb_label.pack(pady=5)
                       
@@ -791,7 +932,7 @@ class TextureTagger:
                             thumb_container,
                             text=", ".join(texture_tags),
                             wraplength=250,  # Ensure text wraps within the container
-                            font=("Arial", 8),
+                            font=("Arial", int(8)),
                             justify="center",
                             height=4
                         )
@@ -1077,6 +1218,10 @@ class TextureTagger:
         self.image_label.config(image=photo)
         self.image_label.image = photo
 
+        # Limit the width, allow overflow
+        max_width = 512  # Set your desired maximum width here
+        self.image_label.config(width=max_width)
+
         # Clear and display tags
         self.tags_listbox.delete(0, END)
         stored_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
@@ -1119,7 +1264,7 @@ class TextureTagger:
 
     def prepare_display_image(self, image):
         """Resize the image for display while preserving aspect ratio."""
-        base_height = 300
+        base_height = 480
         aspect_ratio = image.shape[1] / image.shape[0]
         new_width = int(base_height * aspect_ratio)
         display_image = cv2.resize(image, (new_width, base_height), interpolation=cv2.INTER_LINEAR)
@@ -1142,6 +1287,7 @@ class TextureTagger:
             return
 
         # Calculate the mouse position relative to the display image
+        # Calculate the mouse position relative to the display image
         display_width, display_height = self.display_image_size
         full_width, full_height = self.full_res_image.size
         x_ratio = full_width / display_width
@@ -1152,18 +1298,35 @@ class TextureTagger:
         full_y = int(event.y * y_ratio)
 
         # Define the size of the zoom preview box
-        zoom_box_size = 200  # Larger box for better detail
+        zoom_box_size = 200  # Fixed size for consistent zoom
         half_box_size = zoom_box_size // 2
 
+        # Adjust to keep the zoom box inside the image boundaries
+        left = full_x - half_box_size
+        right = full_x + half_box_size
+        upper = full_y - half_box_size
+        lower = full_y + half_box_size
+
+        # Shift the box if it goes out of bounds
+        if left < 0:
+            right += abs(left)  # Push right side to maintain size
+            left = 0
+        if right > full_width:
+            left -= (right - full_width)
+            right = full_width
+
+        if upper < 0:
+            lower += abs(upper)  # Push lower side to maintain size
+            upper = 0
+        if lower > full_height:
+            upper -= (lower - full_height)
+            lower = full_height
+
         # Crop the zoom box from the full-resolution image
-        left = max(0, full_x - half_box_size)
-        upper = max(0, full_y - half_box_size)
-        right = min(full_width, full_x + half_box_size)
-        lower = min(full_height, full_y + half_box_size)
         zoom_box = self.full_res_image.crop((left, upper, right, lower))
 
         # Resize the zoom box for display
-        zoom_box = zoom_box.resize((300, 300))  # Zoom preview size
+        zoom_box = zoom_box.resize((300, 300), Image.LANCZOS)  # High-quality scaling
         zoom_photo = ImageTk.PhotoImage(zoom_box)
 
         # Create a label to show the zoom preview
@@ -1173,6 +1336,7 @@ class TextureTagger:
         self.zoom_label.config(image=zoom_photo)
         self.zoom_label.image = zoom_photo
         self.zoom_label.place(x=event.x_root + 10, y=event.y_root + 10)
+
 
 
     def hide_zoom_preview(self, event):
