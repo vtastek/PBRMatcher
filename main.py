@@ -446,7 +446,7 @@ class TextureTagger:
             "tx_stone_": "stone"
         }
 
-        self.use_file_config = False
+        self.use_file_config = True
         self.original_button_info = self.button_info
 
         self.buttons = {}
@@ -488,36 +488,40 @@ class TextureTagger:
         print(f"Current index: {self.current_index}")
         print(f"Filtered paths length: {len(self.filtered_texture_paths)}")
 
-        self.misc_button = Button(self.button_frame, font=7, text="Misc", command=self.show_all_textures)
-        self.misc_button.grid(row=0, column=len(self.button_info), padx=10)
-        
-        self.misc_frame = Frame(self.button_frame)
-        self.misc_frame.grid(row=1, column=len(self.button_info), padx=10)
-        
-        self.misc_label_tagged = Label(self.misc_frame, font=5, text="0", fg="green")
-        self.misc_label_tagged.pack(side="left")
-        
-        Label(self.misc_frame, text="/").pack(side="left")
-        
-        self.misc_label_untagged = Label(self.misc_frame, font=5, text="0", fg="red")
-        self.misc_label_untagged.pack(side="left")
+        if self.use_file_config is False:
 
-        self.all_button = Button(self.button_frame, font=7, text="All", command=self.toggle_all_buttons)
-        self.all_button.grid(row=0, column=len(self.button_info) + 1, padx=10)
+            self.misc_button = Button(self.button_frame, font=7, text="Misc", command=self.show_all_textures)
+            self.misc_button.grid(row=0, column=len(self.button_info), padx=10)
+            
+            self.misc_frame = Frame(self.button_frame)
+            self.misc_frame.grid(row=1, column=len(self.button_info), padx=10)
+            
+            self.misc_label_tagged = Label(self.misc_frame, font=5, text="0", fg="green")
+            self.misc_label_tagged.pack(side="left")
+            
+            Label(self.misc_frame, text="/").pack(side="left")
+            
+            self.misc_label_untagged = Label(self.misc_frame, font=5, text="0", fg="red")
+            self.misc_label_untagged.pack(side="left")
+
+            self.all_button = Button(self.button_frame, font=7, text="All", command=self.toggle_all_buttons)
+            self.all_button.grid(row=0, column=len(self.button_info) + 1, padx=10)
+
+        
+
+            self.all_frame = Frame(self.button_frame)
+            self.all_frame.grid(row=1, column=len(self.button_info) + 1, padx=10)
+
+            self.all_label_tagged = Label(self.all_frame, font=5, text="0", fg="green")
+            self.all_label_tagged.pack(side="left")
+
+            Label(self.all_frame, text="/").pack(side="left")
+
+            self.all_label_untagged = Label(self.all_frame, font=5, text="0", fg="red")
+            self.all_label_untagged.pack(side="left")
 
         self.selected_thumbnails_label = Label(self.gridC, text="Selected Thumbnails: 0", font=("Arial", 7))
         self.selected_thumbnails_label.pack(pady=5)
-
-        self.all_frame = Frame(self.button_frame)
-        self.all_frame.grid(row=1, column=len(self.button_info) + 1, padx=10)
-
-        self.all_label_tagged = Label(self.all_frame, font=5, text="0", fg="green")
-        self.all_label_tagged.pack(side="left")
-
-        Label(self.all_frame, text="/").pack(side="left")
-
-        self.all_label_untagged = Label(self.all_frame, font=5, text="0", fg="red")
-        self.all_label_untagged.pack(side="left")
 
         # Display first texture
         self.display_texture()
@@ -880,77 +884,104 @@ class TextureTagger:
             self.label_frames[f"{key}_untagged"].pack(side="left")
             
     def update_counts(self):
-        """Update the counts for each button and label, including 'assigned', handling case differences."""
-        counts = {key: {"tagged": 0, "untagged": 0, "assigned": 0} for key in self.button_info}
 
-        #print(f"DEBUG: button_info keys: {list(self.button_info.keys())}")
+        if self.use_file_config:
+            file_config = self.load_button_config_from_file()
+            counts = {name: {"tagged": 0, "untagged": 0, "assigned": 0} for name in self.button_info.keys()}
+            
+            for button_name, paths in file_config.items():
+                total_paths = len(paths)
+                for path in paths:
+                    translated_path = self.translate_texture_path(path)
+                    if translated_path in self.db["textures"]:
+                        tags = self.db["textures"][translated_path].get("tags", [])
+                        selected = self.db["textures"][translated_path].get("selected_thumbnails", [])
+                        
+                        if tags:
+                            counts[button_name]["tagged"] += 1
+                        if selected:
+                            counts[button_name]["assigned"] += 1
 
-        for path in self.texture_paths:
-            tags = self.db["textures"].get(path, {}).get("tags", [])
-            selected_thumbnails = self.db["textures"].get(path, {}).get("selected_thumbnails", [])
-            filename_casefold = os.path.basename(path).casefold()  # Normalize to casefold for comparison
+                counts[button_name]["untagged"] = total_paths - counts[button_name]["tagged"]
+     
+
+            for name, count in counts.items():
+                self.label_frames[f"{name}_tagged"].config(text=str(count["tagged"]))
+                self.label_frames[f"{name}_untagged"].config(text=str(count["untagged"]))
+                self.label_frames[f"{name}_assigned"].config(text=str(count["assigned"]))
+        else:
+
+            """Update the counts for each button and label, including 'assigned', handling case differences."""
+            counts = {key: {"tagged": 0, "untagged": 0, "assigned": 0} for key in self.button_info}
+
+            #print(f"DEBUG: button_info keys: {list(self.button_info.keys())}")
+
+            for path in self.texture_paths:
+                tags = self.db["textures"].get(path, {}).get("tags", [])
+                selected_thumbnails = self.db["textures"].get(path, {}).get("selected_thumbnails", [])
+                filename_casefold = os.path.basename(path).casefold()  # Normalize to casefold for comparison
 
 
-            for key in self.button_info:
-                key_casefold = key.casefold()  # Normalize key with casefold
+                for key in self.button_info:
+                    key_casefold = key.casefold()  # Normalize key with casefold
 
 
-                if filename_casefold.startswith(key_casefold):
-                    #print(f"DEBUG: Match found - Filename: '{filename_casefold}' matches Key: '{key_casefold}' in ' {key} ")
+                    if filename_casefold.startswith(key_casefold):
+                        #print(f"DEBUG: Match found - Filename: '{filename_casefold}' matches Key: '{key_casefold}' in ' {key} ")
 
-                    if tags:
-                        counts[key]["tagged"] += 1
-                    else:
-                        counts[key]["untagged"] += 1
+                        if tags:
+                            counts[key]["tagged"] += 1
+                        else:
+                            counts[key]["untagged"] += 1
 
-                    if selected_thumbnails:
-                        counts[key]["assigned"] += 1
+                        if selected_thumbnails:
+                            counts[key]["assigned"] += 1
 
-        # Update counts on labels
-        for key, count in counts.items():
-            self.label_frames[f"{key}_tagged"].config(text=str(count["tagged"]))
-            self.label_frames[f"{key}_untagged"].config(text=str(count["untagged"]))
+            # Update counts on labels
+            for key, count in counts.items():
+                self.label_frames[f"{key}_tagged"].config(text=str(count["tagged"]))
+                self.label_frames[f"{key}_untagged"].config(text=str(count["untagged"]))
 
-            # Update the 'assigned' label dynamically
-            if f"{key}_assigned" in self.label_frames:
-                self.label_frames[f"{key}_assigned"].config(text=str(count["assigned"]))
+                # Update the 'assigned' label dynamically
+                if f"{key}_assigned" in self.label_frames:
+                    self.label_frames[f"{key}_assigned"].config(text=str(count["assigned"]))
 
-        # Misc counts
-        misc_tagged = sum(
-            1 for path in self.texture_paths
-            if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
-            and self.db["textures"].get(path, {}).get("tags")
-        )
-        misc_untagged = sum(
-            1 for path in self.texture_paths
-            if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
-            and not self.db["textures"].get(path, {}).get("tags")
-        )
-        misc_assigned = sum(
-            1 for path in self.texture_paths
-            if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
-            and self.db["textures"].get(path, {}).get("selected_thumbnails", [])
-        )
+            # Misc counts
+            misc_tagged = sum(
+                1 for path in self.texture_paths
+                if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
+                and self.db["textures"].get(path, {}).get("tags")
+            )
+            misc_untagged = sum(
+                1 for path in self.texture_paths
+                if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
+                and not self.db["textures"].get(path, {}).get("tags")
+            )
+            misc_assigned = sum(
+                1 for path in self.texture_paths
+                if not any(os.path.basename(path).lower().startswith(key.lower()) for key in self.button_info)
+                and self.db["textures"].get(path, {}).get("selected_thumbnails", [])
+            )
 
-        self.misc_label_tagged.config(text=str(misc_tagged))
-        self.misc_label_untagged.config(text=str(misc_untagged))
-        if hasattr(self, "misc_label_assigned"):
-            self.misc_label_assigned.config(text=str(misc_assigned))
+            self.misc_label_tagged.config(text=str(misc_tagged))
+            self.misc_label_untagged.config(text=str(misc_untagged))
+            if hasattr(self, "misc_label_assigned"):
+                self.misc_label_assigned.config(text=str(misc_assigned))
 
-        # All counts
-        all_tagged = sum(
-            1 for path in self.texture_paths if self.db["textures"].get(path, {}).get("tags")
-        )
-        all_untagged = len(self.texture_paths) - all_tagged
-        all_assigned = sum(
-            1 for path in self.texture_paths
-            if self.db["textures"].get(path, {}).get("selected_thumbnails", [])
-        )
+            # All counts
+            all_tagged = sum(
+                1 for path in self.texture_paths if self.db["textures"].get(path, {}).get("tags")
+            )
+            all_untagged = len(self.texture_paths) - all_tagged
+            all_assigned = sum(
+                1 for path in self.texture_paths
+                if self.db["textures"].get(path, {}).get("selected_thumbnails", [])
+            )
 
-        self.all_label_tagged.config(text=str(all_tagged))
-        self.all_label_untagged.config(text=str(all_untagged))
-        if hasattr(self, "all_label_assigned"):
-            self.all_label_assigned.config(text=str(all_assigned))
+            self.all_label_tagged.config(text=str(all_tagged))
+            self.all_label_untagged.config(text=str(all_untagged))
+            if hasattr(self, "all_label_assigned"):
+                self.all_label_assigned.config(text=str(all_assigned))
 
     def update_selected_thumbnails_count(self):
         """Update the count of selected thumbnails for the current texture and adjust slot buttons."""
@@ -1206,7 +1237,10 @@ class TextureTagger:
                 self.image_label.config(image=None)  # Clear image
                 return
         else:
+            print(f"Filtered paths count: {len(self.filtered_texture_paths)}")
+            self.current_index = 0 if self.filtered_texture_paths else -1
             texture_path = self.filtered_texture_paths[self.current_index]
+            
 
         texture_name = os.path.basename(texture_path)
 
@@ -1240,11 +1274,11 @@ class TextureTagger:
             # Construct the full paths for both _diff_overlay and _col_overlay
 
             thumbnail_name = os.path.basename(thumbnail_name)
-            diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_diff_4k_overlay.png")
-            col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_col_4k_overlay.png")
+            diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
+            col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
 
-            print(diff_overlay_path)
-            print(col_overlay_path)
+            #print(diff_overlay_path)
+            #print(col_overlay_path)
 
             # Check for existence of overlay images
             overlay_path = None
@@ -1253,9 +1287,7 @@ class TextureTagger:
             elif os.path.exists(col_overlay_path):
                 overlay_path = col_overlay_path
 
-            if overlay_path:
-                print(f"Using overlay: {overlay_path}")
-            else:
+            if overlay_path is None:
                 print(f"No overlay match found for: {thumbnail_name}")
         else:
             #print("Invalid slot index or no thumbnails available.")
@@ -1486,17 +1518,33 @@ class TextureTagger:
         self.page_indicator.config(text=f"{current_page}/{total_pages}")
 
     def apply_filters(self):
-        if self.active_buttons:
-            self.filtered_texture_paths = [
-                path for path in self.texture_paths
-                if any(os.path.basename(path).casefold().startswith(tag.casefold()) for tag in self.active_buttons)
-            ]
+        """Apply filters based on active buttons and config type"""
+        if self.use_file_config:
+            # Get paths only from active button categories
+            file_button_config = self.load_button_config_from_file()
+            if not self.active_buttons:
+                self.filtered_texture_paths = [
+                    path for paths in file_button_config.values() 
+                    for path in paths
+                ]
+            else:
+                self.filtered_texture_paths = [
+                    self.translate_texture_path(path)
+                    for button in self.active_buttons
+                    for path in file_button_config.get(button, [])
+                ]
         else:
-            self.filtered_texture_paths = self.texture_paths
+            if self.active_buttons:
+                self.filtered_texture_paths = [
+                    path for path in self.texture_paths
+                    if any(os.path.basename(path).casefold().startswith(tag.casefold()) for tag in self.active_buttons)
+                ]
+            else:
+                self.filtered_texture_paths = self.texture_paths
         
         self.current_index = 0
         self.display_texture()
-
+        
     def toggle_all_buttons(self):
         """Toggle all filters on or off."""
         if len(self.active_buttons) == len(self.button_info):  # All active, deactivate all
@@ -2014,7 +2062,7 @@ class TextureTagger:
         # Create textures
         self.create_param_texture(texture_name_label, staging_dir, arm_texture)
         self.create_nh_texture(texture_name_label, staging_dir, nor_texture, disp_texture)
-        self.process_and_save_diff_textures(texture_name_label, staging_dir, diff_texture, arm_texture)
+        self.process_and_save_diff_textures(texture_name_label, down_thumbnail_name, staging_dir, diff_texture, arm_texture)
 
     def create_param_texture(self, texture_name_label, staging_dir, arm_texture):
         """Creates and saves the _param texture."""
@@ -2046,7 +2094,7 @@ class TextureTagger:
         cv2.imwrite(nh_output_path, nh_texture)
         print(f"Saved nh texture: {nh_output_path}")
 
-    def process_and_save_diff_textures(self, texture_name_label, staging_dir, diff_texture, arm_texture):
+    def process_and_save_diff_textures(self, texture_name_label, down_thumbnail_name, staging_dir, diff_texture, arm_texture):
         """
         Processes and saves textures: diffuse (converted to 8-bit), diffparam, overlay (resized), and zoom (original size).
         
@@ -2093,8 +2141,10 @@ class TextureTagger:
 
         # Save the overlay texture (resized)
         overlay_texture = cv2.resize(diff_texture_8bit, target_size, interpolation=cv2.INTER_LINEAR)
-        overlay_name_path = os.path.basename(texture_name_label)
-        overlay_output_path = os.path.join(OVERLAY_FOLDER, f"{overlay_name_path}_overlay.png")
+        #overlay_name_path = os.path.basename(texture_name_label)
+        
+        overlay_output_path = os.path.join(OVERLAY_FOLDER, f"{down_thumbnail_name}_overlay.png")
+        #print("overlay_output_path", overlay_output_path)
         cv2.imwrite(overlay_output_path, overlay_texture)
         print(f"Saved overlay texture: {overlay_output_path}")
 
