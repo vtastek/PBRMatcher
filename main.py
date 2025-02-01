@@ -414,6 +414,7 @@ class TextureTagger:
         self.remove_tag_button.pack(pady=5)
 
         self.tag_entry = Entry(self.gridA3)
+        self.tag_entry.bind('<Return>', self.tag_return)
         self.tag_entry.pack(pady=5)
 
         # Create a frame for togglable buttons
@@ -446,7 +447,7 @@ class TextureTagger:
             "tx_stone_": "stone"
         }
 
-        self.use_file_config = True
+        self.use_file_config = False
         self.original_button_info = self.button_info
 
         self.buttons = {}
@@ -691,6 +692,7 @@ class TextureTagger:
                 self.update_current_index(selected_texture_name)
                 self.display_texture(selected_texture_name)
                 self.update_pagination()
+                self.display_thumbnails()
 
                 # Hide autocomplete and entry box after selection
                 self.texture_name_entry.place_forget()
@@ -776,6 +778,7 @@ class TextureTagger:
                 self.update_current_index(selected_texture_name)
                 self.display_texture(selected_texture_name)
                 self.update_pagination()
+                self.display_thumbnails()
             else:
                 print("No item highlighted in the Listbox.")
         else:
@@ -1238,7 +1241,6 @@ class TextureTagger:
                 return
         else:
             print(f"Filtered paths count: {len(self.filtered_texture_paths)}")
-            self.current_index = 0 if self.filtered_texture_paths else -1
             texture_path = self.filtered_texture_paths[self.current_index]
             
 
@@ -1362,7 +1364,7 @@ class TextureTagger:
         """Combine overlay image with the base image (zoom image)."""
         combined_image = np.copy(base_image)  # Start with the base image (zoom image)
         overlay_y_offset = base_image.shape[0] // 2  # Overlay at 50% vertical position
-        combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:, :, :]
+        #combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:, :, :]
         return combined_image
 
     def prepare_display_image(self, image):
@@ -1453,6 +1455,9 @@ class TextureTagger:
             self.update_pagination()
             self.display_texture()
 
+    def tag_return(self, event):
+        self.add_tag()
+
     def add_tag(self):
         # Get the current texture path
         texture_path = self.filtered_texture_paths[self.current_index]
@@ -1479,6 +1484,23 @@ class TextureTagger:
         # Refresh counts and UI
         self.update_counts()
 
+        total_thumbnails = len(self.get_matching_textures())
+        self.current_thumbnail_index = max(self.current_thumbnail_index - 5, 0)
+
+        # Calculate the current page and total pages
+        thumbnails_per_page = 5
+        current_page = 0
+        total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
+        
+        # Update the page indicator
+        self.page_indicator.config(text=f"{current_page}/{total_pages}")
+       
+        self.update_pagination()
+        self.display_thumbnails()
+
+
+    
+
     def remove_tag(self):
         texture_path = self.filtered_texture_paths[self.current_index]
         selected_indices = self.tags_listbox.curselection()
@@ -1504,6 +1526,7 @@ class TextureTagger:
 
         self.apply_filters()
         self.update_pagination()
+        self.display_thumbnails()
 
     def update_pagination(self):
         # Get the total number of thumbnails and calculate the total pages
@@ -1512,7 +1535,7 @@ class TextureTagger:
         total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
         
         # Calculate the current page
-        current_page = (self.current_thumbnail_index // thumbnails_per_page) + 1
+        current_page = 0 #(self.current_thumbnail_index // thumbnails_per_page)
         
         # Update the page indicator label
         self.page_indicator.config(text=f"{current_page}/{total_pages}")
@@ -2093,6 +2116,22 @@ class TextureTagger:
         nh_output_path = os.path.join(staging_dir, f"{texture_name_label}_nh.png")
         cv2.imwrite(nh_output_path, nh_texture)
         print(f"Saved nh texture: {nh_output_path}")
+    
+    def is_in_txt(self, filename, filepath="terrain_dump.txt"):
+        filename = filename.lower()
+        def clean_line(line):
+            cleaned = os.path.splitext(line.strip().lower())[0]
+            #print(f"Checking line: '{line.strip()}' -> Cleaned: '{cleaned}'")  # Debugging output
+            return cleaned
+        
+        with open(filepath, "r") as file:
+            for line in file:
+                if clean_line(line) == filename:
+                    #print(f"Match found: {filename}")  # Debugging output
+                    return True
+        print(f"No match found for: {filename}")  # Debugging output
+        return False
+
 
     def process_and_save_diff_textures(self, texture_name_label, down_thumbnail_name, staging_dir, diff_texture, arm_texture):
         """
@@ -2148,18 +2187,24 @@ class TextureTagger:
         cv2.imwrite(overlay_output_path, overlay_texture)
         print(f"Saved overlay texture: {overlay_output_path}")
 
+
+        filename = os.path.basename(texture_name_label).replace(".dds", "")
+        filename = filename.replace(".tga", "").lower()
+
+
+
         # If arm_texture is provided, create and save the diffparam texture
-        if arm_texture is not None:
+        if arm_texture is not None and self.is_in_txt(filename):
             # Convert the green channel of ARM texture to 8-bit for alpha
             d_alpha = self.convert_to_8bit_single_channel(arm_texture[:, :, 1])  # Green (from ARM)
 
             # Combine diffuse channels with alpha into diffparam texture
             diffparam_texture = cv2.merge([d_red, d_green, d_blue, d_alpha])
             diffparam_output_path = os.path.join(staging_dir, f"{texture_name_label}_diffparam.png")
+            
+            #print("DIFF: ", texture_name_label)
             cv2.imwrite(diffparam_output_path, diffparam_texture)
             print(f"Saved diffparam texture: {diffparam_output_path}")
-
-
 
 # Main
 if __name__ == "__main__":
