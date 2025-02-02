@@ -993,7 +993,11 @@ class TextureTagger:
         texture_path = self.filtered_texture_paths[self.current_index]
 
         # Retrieve selected thumbnails for the current texture
-        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        #selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        selected_thumbnails = [
+                thumb["name"] if isinstance(thumb, dict) else thumb
+                for thumb in self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+            ]
         #print("PATH: ", texture_path)
         #print(f"Selected thumbnails: {selected_thumbnails}")
 
@@ -1160,7 +1164,11 @@ class TextureTagger:
 
                         # Highlight if already selected
                         texture_path = self.filtered_texture_paths[self.current_index]
-                        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+                        #selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+                        selected_thumbnails = [
+                            thumb["name"] if isinstance(thumb, dict) else thumb
+                            for thumb in self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+                        ]
                         #print(f"Current Texture Path: {texture_path}")
                         #print(f"Selected Thumbnails: {selected_thumbnails}")
                         #print(f"Checking Texture ID: {texture_id}")
@@ -1260,7 +1268,11 @@ class TextureTagger:
         texture_name_result = texture_name.replace("_result", "")
         self.update_texture_label(texture_name_result)
 
-        selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        #selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+        selected_thumbnails = [
+                thumb["name"] if isinstance(thumb, dict) else thumb
+                for thumb in self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+            ]
 
         # Ensure selected_slot is valid
         if len(selected_thumbnails) > 0:
@@ -1647,7 +1659,12 @@ class TextureTagger:
             return
 
         for texture_path in self.filtered_texture_paths:
-            selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+            #selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+
+            selected_thumbnails = [
+                thumb["name"] if isinstance(thumb, dict) else thumb
+                for thumb in self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+            ]
 
             # Ensure there are selected thumbnails for the texture
             if not selected_thumbnails:
