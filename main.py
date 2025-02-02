@@ -2206,14 +2206,24 @@ class TextureTagger:
         target_size = (results_image.shape[1], results_image.shape[0])  # (width, height)
         print(f"Retrieved target size from results file: {target_size}")
 
-        # Save the overlay texture (resized)
-        overlay_texture = cv2.resize(diff_texture_8bit, target_size, interpolation=cv2.INTER_LINEAR)
-        #overlay_name_path = os.path.basename(texture_name_label)
-        
+        # Check if existing overlay exists and is larger
         overlay_output_path = os.path.join(OVERLAY_FOLDER, f"{down_thumbnail_name}_overlay.png")
-        print("overlay_output_path", overlay_output_path)
-        cv2.imwrite(overlay_output_path, overlay_texture)
-        print(f"Saved overlay texture: {overlay_output_path}")
+        if os.path.isfile(overlay_output_path):
+            existing_overlay = cv2.imread(overlay_output_path, cv2.IMREAD_UNCHANGED)
+            if existing_overlay is not None and (existing_overlay.shape[0] > target_size[1] or existing_overlay.shape[1] > target_size[0]):
+                print(f"Skipping overlay creation: existing overlay is larger than target size")
+            else:
+                # Save the overlay texture (resized)
+                overlay_texture = cv2.resize(diff_texture_8bit, target_size, interpolation=cv2.INTER_LINEAR)
+                print("overlay_output_path", overlay_output_path)
+                cv2.imwrite(overlay_output_path, overlay_texture)
+                print(f"Saved overlay texture: {overlay_output_path}")
+        else:
+            # Save the overlay texture (resized)
+            overlay_texture = cv2.resize(diff_texture_8bit, target_size, interpolation=cv2.INTER_LINEAR)
+            print("overlay_output_path", overlay_output_path)
+            cv2.imwrite(overlay_output_path, overlay_texture)
+            print(f"Saved overlay texture: {overlay_output_path}")
 
 
         filename = os.path.basename(texture_name_label).replace(".dds", "")
