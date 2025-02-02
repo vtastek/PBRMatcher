@@ -635,6 +635,9 @@ class TextureTagger:
     def update_texture_label(self, texture_name):
         """Change background color if the file exists."""
 
+        texture_name = texture_name.replace(".png", "")
+        texture_name = f"{texture_name}_result.png"
+
         # Construct the file path
         file_path = os.path.join(TARGET_FOLDER, texture_name)
         #print("JOIN2: ", file_path)
@@ -1287,6 +1290,15 @@ class TextureTagger:
         else:
             slot_index = None  # No valid index
 
+        # Load the zoom image (used as the base image)
+        zoom_image = self.load_image(texture_path)
+        if zoom_image is None:
+            print(f"Failed to load zoom image: \n\n\n\n{texture_path}\n\n\n\n")
+            return
+
+        # Set default image
+        image = zoom_image
+
         # Validate slot_index before accessing selected_thumbnails
         if slot_index is not None and 0 <= slot_index < len(selected_thumbnails):
             #print("SLOT:", slot_index)
@@ -1298,9 +1310,8 @@ class TextureTagger:
             thumbnail_name = os.path.basename(thumbnail_name)
             diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
             col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
-
-            print(diff_overlay_path)
-            print(col_overlay_path)
+            #print(diff_overlay_path)
+            #print(col_overlay_path)
 
             # Check for existence of overlay images
             overlay_path = None
@@ -1308,33 +1319,38 @@ class TextureTagger:
                 overlay_path = diff_overlay_path
             elif os.path.exists(col_overlay_path):
                 overlay_path = col_overlay_path
-
             if overlay_path is None:
                 print(f"No overlay match found for: {thumbnail_name}")
-        else:
-            #print("Invalid slot index or no thumbnails available.")
-            overlay_path = None
 
-        # Load the zoom image (used as the base image)
-        zoom_image = self.load_image(texture_path)
-        if zoom_image is None:
-            print(f"Failed to load zoom image: {texture_path}")
-            return
 
-        # Load the overlay image if available
-        if overlay_path:
-            overlay_image = self.load_image(overlay_path)
-            if overlay_image is not None:
-                # Combine the overlay with the zoom image (as the base)
-                image = self.combine_overlay(zoom_image, overlay_image)
-            else:
-                print(f"Failed to load overlay image: {overlay_path}")
-                image = zoom_image
-        else:
-            image = zoom_image
+            
+
+            # Try to load and combine overlay if available
+            if overlay_path:
+                overlay_image = self.load_image(overlay_path)
+                if overlay_image is not None and texture_path is not None:
+                    #print("base: ", texture_path)
+                    #print("overlay: ", overlay_path)
+                    try:
+                        # Inline combine_overlay function with debug info
+                        combined_image = np.copy(zoom_image)
+                        overlay_y_offset = zoom_image.shape[0] // 2
+                        #print(f"Base shape: {zoom_image.shape}")
+                        #print(f"Overlay shape: {overlay_image.shape}")
+                        #print(f"Y offset: {overlay_y_offset}")
+                        
+                        # Calculate how many rows we can actually use
+                        available_rows = zoom_image.shape[0] - overlay_y_offset
+                        
+                        combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:overlay_y_offset + available_rows, :zoom_image.shape[1], :]
+                        image = combined_image
+                    except Exception as e:
+                        print(f"Error combining images: {str(e)}")
 
         # Prepare the resized version (for display)
         display_image = self.prepare_display_image(image)
+        
+        
         self.full_res_image = Image.fromarray(image)
         # Save the display size for zoom preview calculations
         self.display_image_size = display_image.size
@@ -1379,13 +1395,6 @@ class TextureTagger:
 
             return image
         return None
-
-    def combine_overlay(self, base_image, overlay_image):
-        """Combine overlay image with the base image (zoom image)."""
-        combined_image = np.copy(base_image)  # Start with the base image (zoom image)
-        overlay_y_offset = base_image.shape[0] // 2  # Overlay at 50% vertical position
-        combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:, :, :]
-        return combined_image
 
     def prepare_display_image(self, image):
         """Resize the image for display while preserving aspect ratio."""
