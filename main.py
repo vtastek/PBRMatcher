@@ -1195,13 +1195,20 @@ class TextureTagger:
 
     def next_thumbnails(self):
         # Update the index and display thumbnails
-        total_thumbnails = len(self.get_matching_textures())
-        self.current_thumbnail_index = min(self.current_thumbnail_index + 5, total_thumbnails - 1)
-
-         # Calculate the current page and total pages
+        # Calculate the current page and total pages
         thumbnails_per_page = 5
+        total_thumbnails = len(self.get_matching_textures())
+        max_index = (total_thumbnails // thumbnails_per_page) * thumbnails_per_page
+
+        self.current_thumbnail_index = min(self.current_thumbnail_index + 5, max_index)
+        print("thumb index: ", self.current_thumbnail_index)
+
+
         current_page = (self.current_thumbnail_index // thumbnails_per_page) + 1
         total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
+
+        print("total: ", total_pages)
+        print("current: ", current_page)
         
         # Update the page indicator
         self.page_indicator.config(text=f"{current_page}/{total_pages}")
@@ -1524,6 +1531,9 @@ class TextureTagger:
             self.active_buttons.add(tag)
             self.buttons[tag].config(bg="lightblue")  # Set to active color
 
+        # Reset to the first page
+        self.current_thumbnail_index = 0
+
         self.apply_filters()
         self.update_pagination()
         self.display_thumbnails()
@@ -1538,7 +1548,7 @@ class TextureTagger:
         current_page = 0 #(self.current_thumbnail_index // thumbnails_per_page)
         
         # Update the page indicator label
-        self.page_indicator.config(text=f"{current_page}/{total_pages}")
+        self.page_indicator.config(text=f"{current_page + 1}/{total_pages}")
 
     def apply_filters(self):
         """Apply filters based on active buttons and config type"""
