@@ -483,11 +483,11 @@ class TextureTagger:
 
         self.create_buttons()
 
-        print(f"Filtered paths count: {len(self.filtered_texture_paths)}")
-        print(f"First few paths: {self.filtered_texture_paths[:3]}")
+        #print(f"Filtered paths count: {len(self.filtered_texture_paths)}")
+        #print(f"First few paths: {self.filtered_texture_paths[:3]}")
 
-        print(f"Current index: {self.current_index}")
-        print(f"Filtered paths length: {len(self.filtered_texture_paths)}")
+        #print(f"Current index: {self.current_index}")
+        #print(f"Filtered paths length: {len(self.filtered_texture_paths)}")
 
         if self.use_file_config is False:
 
@@ -856,6 +856,7 @@ class TextureTagger:
     def switch_slot(self, slot_name):
         self.selected_slot = slot_name
         #print(f"Switched to slot: {slot_name}")  # Debugging
+        self.display_texture()
         self.update_selected_thumbnails_count()  # Update preview
 
 
@@ -1247,7 +1248,7 @@ class TextureTagger:
                 self.image_label.config(image=None)  # Clear image
                 return
         else:
-            print(f"Filtered paths count: {len(self.filtered_texture_paths)}")
+            #print(f"Filtered paths count: {len(self.filtered_texture_paths)}")
             texture_path = self.filtered_texture_paths[self.current_index]
             
 
@@ -1286,8 +1287,8 @@ class TextureTagger:
             diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
             col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
 
-            #print(diff_overlay_path)
-            #print(col_overlay_path)
+            print(diff_overlay_path)
+            print(col_overlay_path)
 
             # Check for existence of overlay images
             overlay_path = None
@@ -1371,7 +1372,7 @@ class TextureTagger:
         """Combine overlay image with the base image (zoom image)."""
         combined_image = np.copy(base_image)  # Start with the base image (zoom image)
         overlay_y_offset = base_image.shape[0] // 2  # Overlay at 50% vertical position
-        #combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:, :, :]
+        combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:, :, :]
         return combined_image
 
     def prepare_display_image(self, image):
@@ -1668,7 +1669,7 @@ class TextureTagger:
             return
 
         # Print debug information
-        print(f"[DEBUG] Added all textures to queue. Current Queue Length: {len(self.download_queue)}")
+        #print(f"[DEBUG] Added all textures to queue. Current Queue Length: {len(self.download_queue)}")
 
         # Start processing the queue if idle
         if not self.currently_downloading:
@@ -2193,7 +2194,7 @@ class TextureTagger:
         #overlay_name_path = os.path.basename(texture_name_label)
         
         overlay_output_path = os.path.join(OVERLAY_FOLDER, f"{down_thumbnail_name}_overlay.png")
-        #print("overlay_output_path", overlay_output_path)
+        print("overlay_output_path", overlay_output_path)
         cv2.imwrite(overlay_output_path, overlay_texture)
         print(f"Saved overlay texture: {overlay_output_path}")
 
