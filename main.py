@@ -353,7 +353,7 @@ class TextureTagger:
         self.show_queue_button.grid(row=0, column=2, padx=5, pady=10, sticky="nwse")
 
         # Add a Progressbar widget to the GUI
-        self.progress_label = ttk.Label(self.download_frame, font=9, text="Completed: 0, In Progress: 0, Pending: 0")
+        self.progress_label = ttk.Label(self.download_frame, font=9, text="")
         self.progress_label.grid(row=1, columnspan=3, pady=10)
 
         self.progress_bar= ttk.Progressbar(self.download_frame, orient="horizontal", length=300, mode="determinate")
@@ -1782,7 +1782,7 @@ class TextureTagger:
         pending_count = len(self.download_queue)
         
         self.progress_label.config(
-            text=f"Completed: {completed_count}, In Progress: {in_progress_count}, Pending: {pending_count}"
+            text=f"{completed_count} / {completed_count + pending_count}"
         )
 
     def process_queue(self):
@@ -2157,7 +2157,7 @@ class TextureTagger:
                 if clean_line(line) == filename:
                     #print(f"Match found: {filename}")  # Debugging output
                     return True
-        print(f"No match found for: {filename}")  # Debugging output
+        #print(f"No match found for: {filename}")  # Debugging output
         return False
 
 
