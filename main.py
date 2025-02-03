@@ -265,7 +265,7 @@ class TextureTagger:
 
         # Add sub-frames inside gridA
         self.gridA1 = Frame(self.gridA, bg="#999999")  # Content-sized
-        self.gridA2 = Frame(self.gridA, bg="#999999")  # Expanding
+        self.gridA2 = Frame(self.gridA)  # Expanding
         self.gridA3 = Frame(self.gridA, bg="#999999")  # Centered
         self.gridA4 = Frame(self.gridA, bg="#999999")  # Expanding
         self.gridA5 = Frame(self.gridA, bg="#999999")  # Content-sized
@@ -304,6 +304,9 @@ class TextureTagger:
 
 
         # GUI Elements
+
+        
+
         self.texture_name_label = Label(self.gridA3, text="", font=("Arial", int(7 * scale_factor)), pady=10)
         self.texture_name_label.bind("<Button-1>", self.show_entry) #bind click
         self.texture_name_label.pack()
@@ -313,6 +316,98 @@ class TextureTagger:
         self.entry_container = Frame(self.gridA3)  # Container for entry and list
         self.entry_container.place(relx=0.25, rely=0.01) #pack the container AFTER the label
         self.entry_container.lift()
+
+
+
+
+        # Rotation Slider (90° steps)
+        self.rotation_label = ttk.Label(self.gridA2, text="Rotation")
+        self.rotation_label.pack(pady=5)
+        self.rotation_var = tk.IntVar(value=0)
+        self.rotation_slider = tk.Scale(
+            self.gridA2, 
+            from_=0, 
+            to=270, 
+            orient="horizontal",
+            command=self.update_rotation, 
+            length=300,
+            width=20,
+            resolution=90,
+            sliderlength=30
+        )
+        self.rotation_slider.set(0)  # Initial value
+        self.rotation_slider.pack()
+        self.rotation_display = ttk.Label(self.gridA2, text="Rotation: 0°")
+        self.rotation_display.pack()
+        self.rotation_slider.bind("<Button-3>", self.reset_rotation)  # Right-click reset
+        self.rotation_slider.bind("<B1-Motion>", self.snap_rotation)
+
+        # Hue Slider
+        self.hue_label = ttk.Label(self.gridA2, text="Hue")
+        self.hue_label.pack(pady=5)
+        self.hue_var = tk.IntVar(value=0)
+        self.hue_slider = tk.Scale(
+            self.gridA2, 
+            from_=-180, 
+            to=180, 
+            orient="horizontal",
+            command=self.update_hue, 
+            length=300,
+            width=20,
+            sliderlength=30
+        )
+        self.hue_slider.set(0)
+        self.hue_slider.pack()
+        self.hue_display = ttk.Label(self.gridA2, text="Hue: 0")
+        self.hue_display.pack()
+        self.hue_slider.bind("<Button-3>", self.reset_hue)
+
+        # Saturation Slider
+        self.saturation_label = ttk.Label(self.gridA2, text="Saturation")
+        self.saturation_label.pack(pady=5)
+        self.saturation_var = tk.DoubleVar(value=1.0)
+        self.saturation_slider = tk.Scale(
+            self.gridA2, 
+            from_=0.0, 
+            to=1.0, 
+            orient="horizontal",
+            command=self.update_saturation, 
+            length=300,
+            width=20,
+            sliderlength=30,
+            resolution=0.01
+        )
+        self.saturation_slider.set(1.0)
+        self.saturation_slider.pack()
+        self.saturation_display = ttk.Label(self.gridA2, text="Saturation: 1.0")
+        self.saturation_display.pack()
+        self.saturation_slider.bind("<Button-3>", self.reset_saturation)
+
+        # Value Slider
+        self.value_label = ttk.Label(self.gridA2, text="Value")
+        self.value_label.pack(pady=5)
+        self.value_var = tk.DoubleVar(value=1.0)
+        self.value_slider = tk.Scale(
+            self.gridA2, 
+            from_=0.0, 
+            to=1.0, 
+            orient="horizontal",
+            command=self.update_value, 
+            length=300,
+            width=20,
+            sliderlength=30,
+            resolution=0.01
+        )
+        self.value_slider.set(1.0)
+        self.value_slider.pack()
+        self.value_display = ttk.Label(self.gridA2, text="Value: 1.0")
+        self.value_display.pack()
+        self.value_slider.bind("<Button-3>", self.reset_value)
+
+        # Button to Print Current Values (for testing)
+        self.print_button = ttk.Button(self.gridA2, text="Print Values", command=self.print_values)
+        self.print_button.pack(pady=10)
+        
 
 
         self.label_frame = Frame(self.gridA3, bg="black")
@@ -331,8 +426,6 @@ class TextureTagger:
 
         # Create the download frame and add the button and progress bar
         self.download_frame = Frame(self.gridA4, padx=5, pady=15)
-        offset = 16  # Fixed offset from top (y=16)
-        relscale = 0.9
 
         self.download_frame.grid(row=0, column=0, pady=10, sticky="n")  # Middle column, centered at the top
 
@@ -576,6 +669,77 @@ class TextureTagger:
 
         # Set the window geometry
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+        
+
+    def update_rotation(self, event):
+        """Update rotation with snap to 90-degree increments"""
+        value = int(float(event))
+        snapped_value = (value // 90) * 90
+        if snapped_value != self.rotation_var.get():
+            self.rotation_var.set(snapped_value)
+            self.rotation_display.config(text=f"Rotation: {snapped_value}°")
+        self.rotation_slider.set(snapped_value)
+
+    def update_hue(self, event):
+        value = int(float(event))
+        self.hue_var.set(value)
+        self.hue_display.config(text=f"Hue: {value}")
+
+    def update_saturation(self, event):
+        value = round(float(event), 1)
+        self.saturation_var.set(value)
+        self.saturation_display.config(text=f"Saturation: {value}")
+
+    def update_value(self, event):
+        value = round(float(event), 1)
+        self.value_var.set(value)
+        self.value_display.config(text=f"Value: {value}")
+
+    def print_values(self):
+        rotation = self.rotation_var.get()
+        hue = self.hue_var.get()
+        saturation = self.saturation_var.get()
+        value = self.value_var.get()
+        print(f"Rotation: {rotation}°, Hue: {hue}, Saturation: {saturation}, Value: {value}")
+
+    def reset_rotation(self, event):
+        if event.num == 3:  # Right-click
+            event.widget.event_generate('<Button-1>', x=0, y=0)  # Cancel the right-click set
+            self.rotation_var.set(0)
+            self.rotation_slider.set(0)
+            self.rotation_display.config(text="Rotation: 0°")
+        return "break"  # Prevent default right-click behavior
+    
+    def snap_rotation(self, event):
+        """Handle visual snapping during drag"""
+        value = self.rotation_slider.get()
+        snapped_value = (int(value) // 90) * 90
+        self.rotation_slider.set(snapped_value)
+    
+    def reset_hue(self, event):
+        if event.num == 3:  # Right-click
+            event.widget.event_generate('<Button-1>', x=0, y=0)  # Cancel the right-click set
+            self.hue_var.set(0)
+            self.hue_display.config(text="Hue: 0")
+            self.hue_slider.set(0)
+            return "break"
+
+    def reset_saturation(self, event):
+        if event.num == 3:  # Right-click
+            event.widget.event_generate('<Button-1>', x=0, y=0)  # Cancel the right-click set
+            self.saturation_var.set(1.0)
+            self.saturation_display.config(text="Saturation: 1.0")
+            self.saturation_slider.set(1.0)
+            return "break"
+
+    def reset_value(self, event):
+        if event.num == 3:  # Right-click
+            event.widget.event_generate('<Button-1>', x=0, y=0)  # Cancel the right-click set
+            self.value_var.set(1.0)
+            self.value_display.config(text="Value: 1.0")
+            self.value_slider.set(1.0)
+            return "break"
 
     def load_button_config_from_file(self, file_path='texmatch.txt'):
         """
