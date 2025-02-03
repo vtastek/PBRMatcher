@@ -404,12 +404,6 @@ class TextureTagger:
         self.value_display.pack()
         self.value_slider.bind("<Button-3>", self.reset_value)
 
-        # Button to Print Current Values (for testing)
-        self.print_button = ttk.Button(self.gridA2, text="Print Values", command=self.print_values)
-        self.print_button.pack(pady=10)
-        
-
-
         self.label_frame = Frame(self.gridA3, bg="black")
         self.label_frame.pack()
         self.image_label = Label(self.label_frame, bg="black")
@@ -680,28 +674,25 @@ class TextureTagger:
             self.rotation_var.set(snapped_value)
             self.rotation_display.config(text=f"Rotation: {snapped_value}°")
         self.rotation_slider.set(snapped_value)
+        self.quick_update_texture(rotation=value)
 
     def update_hue(self, event):
         value = int(float(event))
         self.hue_var.set(value)
         self.hue_display.config(text=f"Hue: {value}")
+        self.quick_update_texture(hue=value)
 
     def update_saturation(self, event):
-        value = round(float(event), 1)
+        value = round(float(event), 2)
         self.saturation_var.set(value)
         self.saturation_display.config(text=f"Saturation: {value}")
+        self.quick_update_texture(saturation=value)
 
     def update_value(self, event):
-        value = round(float(event), 1)
+        value = round(float(event), 2)
         self.value_var.set(value)
         self.value_display.config(text=f"Value: {value}")
-
-    def print_values(self):
-        rotation = self.rotation_var.get()
-        hue = self.hue_var.get()
-        saturation = self.saturation_var.get()
-        value = self.value_var.get()
-        print(f"Rotation: {rotation}°, Hue: {hue}, Saturation: {saturation}, Value: {value}")
+        self.quick_update_texture(value=value)
 
     def reset_rotation(self, event):
         if event.num == 3:  # Right-click
@@ -1377,15 +1368,10 @@ class TextureTagger:
         max_index = (total_thumbnails // thumbnails_per_page) * thumbnails_per_page
 
         self.current_thumbnail_index = min(self.current_thumbnail_index + 5, max_index)
-        print("thumb index: ", self.current_thumbnail_index)
-
 
         current_page = (self.current_thumbnail_index // thumbnails_per_page) + 1
         total_pages = (total_thumbnails // thumbnails_per_page) + (1 if total_thumbnails % thumbnails_per_page > 0 else 0)
 
-        print("total: ", total_pages)
-        print("current: ", current_page)
-        
         # Update the page indicator
         self.page_indicator.config(text=f"{current_page}/{total_pages}")
         
@@ -1406,8 +1392,83 @@ class TextureTagger:
     
         self.display_thumbnails()
 
+    def quick_update_texture(self, rotation=None, hue=None, saturation=None, value=None):
+        """
+        Quickly update the current texture with new rotation and HSV settings.
+        This method assumes the base overlay has already been loaded.
+        """
+        # If no overlay image is currently loaded, do nothing
+        if not hasattr(self, 'current_overlay_image') or self.current_overlay_image is None:
+            return
 
-    def display_texture(self, entered_texture_name=None):
+        # Create a copy of the original overlay to manipulate
+        overlay_image = np.copy(self.current_overlay_image)
+        Alpha = False
+
+        # Use current values if not specified
+        if rotation is None:
+            rotation = self.rotation_var.get()
+        if hue is None:
+            hue = self.hue_var.get()
+        if saturation is None:
+            saturation = self.saturation_var.get()
+        if value is None:
+            value = self.value_var.get()  # Assuming you have a value_var similar to other sliders
+
+
+        # Check for alpha channel
+        if overlay_image.shape[2] == 4:
+            Alpha = True
+            alpha_channel = overlay_image[:, :, 3]
+            overlay_image = overlay_image[:, :, :3]
+
+        # Apply rotation
+        if rotation != 0:
+            center = (overlay_image.shape[1] // 2, overlay_image.shape[0] // 2)
+            rotation_matrix = cv2.getRotationMatrix2D(center, rotation, 1.0)
+            overlay_image = cv2.warpAffine(overlay_image, rotation_matrix, (overlay_image.shape[1], overlay_image.shape[0]))
+
+        # Apply HSV adjustments
+        hsv_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGR2HSV).astype(np.float32)
+        
+        # Adjust Hue
+        if hue != 0:
+            hsv_image[:,:,0] = (hsv_image[:,:,0] + hue) % 180
+        
+        # Adjust Saturation and Value
+        hsv_image[:,:,1] = np.clip(hsv_image[:,:,1] * saturation, 0, 255)
+        hsv_image[:,:,2] = np.clip(hsv_image[:,:,2] * value, 0, 255)
+        
+        hsv_image = hsv_image.astype(np.uint8)
+
+        # Convert back to BGR
+        overlay_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2BGR)
+
+        # Recombine with alpha channel if it existed
+        if Alpha:
+            overlay_image = np.dstack((overlay_image, alpha_channel))
+
+        # Directly combine with the base image
+        if hasattr(self, 'current_zoom_image'):
+            combined_image = np.copy(self.current_zoom_image)
+            overlay_y_offset = combined_image.shape[0] // 2
+            available_rows = combined_image.shape[0] - overlay_y_offset
+            
+            combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:overlay_y_offset + available_rows, :combined_image.shape[1], :]
+
+            # Prepare the resized version (for display)
+            display_image = self.prepare_display_image(combined_image)
+            
+            # Update full res image
+            self.full_res_image = Image.fromarray(combined_image)
+            self.display_image_size = display_image.size
+
+            # Display the image
+            photo = ImageTk.PhotoImage(display_image)
+            self.image_label.config(image=photo)
+            self.image_label.image = photo
+            
+    def display_texture(self, entered_texture_name = None, manipulated_overlay_image=None):
         """Update the texture based on the user input."""
         texture_path = None
 
@@ -1462,6 +1523,7 @@ class TextureTagger:
 
         # Set default image
         image = zoom_image
+        self.current_zoom_image = zoom_image
 
         # Validate slot_index before accessing selected_thumbnails
         if slot_index is not None and 0 <= slot_index < len(selected_thumbnails):
@@ -1485,31 +1547,46 @@ class TextureTagger:
                 overlay_path = col_overlay_path
             if overlay_path is None:
                 print(f"No overlay match found for: {thumbnail_name}")
+        else:
+            overlay_path = None
+
+        Alpha = False
+
+        # Try to load and combine overlay if available
+        if overlay_path:
+            overlay_image = self.load_image(overlay_path)
+            self.current_overlay_image = overlay_image  # Store the original overlay
+
+            if overlay_image.shape[2] == 3:
+                Alpha = False
+            else:
+                Alpha = True
+                alpha_channel = overlay_image[:, :, 3]
 
 
-            
+            overlay_y_offset = overlay_image.shape[0] // 2
 
-            # Try to load and combine overlay if available
-            if overlay_path:
-                overlay_image = self.load_image(overlay_path)
-                if overlay_image is not None and texture_path is not None:
-                    #print("base: ", texture_path)
-                    #print("overlay: ", overlay_path)
-                    try:
-                        # Inline combine_overlay function with debug info
-                        combined_image = np.copy(zoom_image)
-                        overlay_y_offset = zoom_image.shape[0] // 2
-                        #print(f"Base shape: {zoom_image.shape}")
-                        #print(f"Overlay shape: {overlay_image.shape}")
-                        #print(f"Y offset: {overlay_y_offset}")
-                        
-                        # Calculate how many rows we can actually use
-                        available_rows = zoom_image.shape[0] - overlay_y_offset
-                        
-                        combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:overlay_y_offset + available_rows, :zoom_image.shape[1], :]
-                        image = combined_image
-                    except Exception as e:
-                        print(f"Error combining images: {str(e)}")
+            print(f"Overlay shape: {overlay_image.shape}")
+            print(f"Y offset: {overlay_y_offset}")
+
+            if overlay_image is not None and texture_path is not None:
+                #print("base: ", texture_path)
+                #print("overlay: ", overlay_path)
+                try:
+                    # Inline combine_overlay function with debug info
+                    combined_image = np.copy(zoom_image)
+                    overlay_y_offset = zoom_image.shape[0] // 2
+                    #print(f"Base shape: {zoom_image.shape}")
+                    #print(f"Overlay shape: {overlay_image.shape}")
+                    #print(f"Y offset: {overlay_y_offset}")
+                    
+                    # Calculate how many rows we can actually use
+                    available_rows = zoom_image.shape[0] - overlay_y_offset
+                    
+                    combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:overlay_y_offset + available_rows, :zoom_image.shape[1], :]
+                    image = combined_image
+                except Exception as e:
+                    print(f"Error combining images: {str(e)}")
 
         # Prepare the resized version (for display)
         display_image = self.prepare_display_image(image)
@@ -1528,6 +1605,7 @@ class TextureTagger:
         max_width = 512  # Set your desired maximum width here
         self.image_label.config(width=max_width)
 
+        
         # Clear and display tags
         self.tags_listbox.delete(0, END)
         stored_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
