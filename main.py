@@ -534,7 +534,7 @@ class TextureTagger:
             "tx_stone_": "stone"
         }
 
-        self.use_file_config = False
+        self.use_file_config = True
         self.original_button_info = self.button_info
 
         self.buttons = {}
@@ -791,7 +791,7 @@ class TextureTagger:
         """Change background color if the file exists."""
 
         texture_name = texture_name.replace(".png", "")
-        texture_name = f"{texture_name}_result.png"
+        texture_name = f"{texture_name}.png"
 
         # Construct the file path
         file_path = os.path.join(TARGET_FOLDER, texture_name)
@@ -1153,11 +1153,13 @@ class TextureTagger:
         # Retrieve selected thumbnails for the current texture
         #selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
         selected_thumbnails = [
-                thumb["name"] if isinstance(thumb, dict) else thumb
-                for thumb in self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
-            ]
-        #print("PATH: ", texture_path)
-        #print(f"Selected thumbnails: {selected_thumbnails}")
+            thumb["name"]
+            for key in self.db["textures"]
+            if key.lower() == texture_path.lower()
+            for thumb in self.db["textures"][key].get("selected_thumbnails", [])
+        ]
+        print("PATH: ", texture_path)
+        print(f"Selected thumbnails: {selected_thumbnails}")
 
         # Set a default selected slot if none is set or out of range
         if len(selected_thumbnails) > 0:
@@ -1347,13 +1349,16 @@ class TextureTagger:
         texture_data = self.db["textures"].setdefault(texture_path, {})
         selected_thumbnails = texture_data.setdefault("selected_thumbnails", [])
 
-        if texture_id in selected_thumbnails:
-            # Deselect
-            selected_thumbnails.remove(texture_id)
+        # Check if the texture_id is already selected
+        is_selected = any(item["name"] == texture_id for item in selected_thumbnails)
+
+        if is_selected:
+            # Deselect: Remove the dictionary with the matching "name"
+            selected_thumbnails[:] = [item for item in selected_thumbnails if item["name"] != texture_id]
             container.config(highlightbackground="gray", highlightthickness=2)
         else:
-            # Select
-            selected_thumbnails.append(texture_id)
+            # Select: Add a new dictionary with the "name" key
+            selected_thumbnails.append({"name": texture_id})
             container.config(highlightbackground="blue", highlightthickness=2)
 
         # Save changes to the database
@@ -1401,24 +1406,18 @@ class TextureTagger:
         if not hasattr(self, 'current_overlay_image') or self.current_overlay_image is None:
             return
 
+        # Use current values if not specified
+        rotation = self.rotation_var.get() if rotation is None else rotation
+        hue = self.hue_var.get() if hue is None else hue
+        saturation = self.saturation_var.get() if saturation is None else saturation
+        value = self.value_var.get() if value is None else value
+
         # Create a copy of the original overlay to manipulate
         overlay_image = np.copy(self.current_overlay_image)
-        Alpha = False
-
-        # Use current values if not specified
-        if rotation is None:
-            rotation = self.rotation_var.get()
-        if hue is None:
-            hue = self.hue_var.get()
-        if saturation is None:
-            saturation = self.saturation_var.get()
-        if value is None:
-            value = self.value_var.get()  # Assuming you have a value_var similar to other sliders
-
 
         # Check for alpha channel
-        if overlay_image.shape[2] == 4:
-            Alpha = True
+        has_alpha = overlay_image.shape[2] == 4
+        if has_alpha:
             alpha_channel = overlay_image[:, :, 3]
             overlay_image = overlay_image[:, :, :3]
 
@@ -1427,25 +1426,22 @@ class TextureTagger:
             center = (overlay_image.shape[1] // 2, overlay_image.shape[0] // 2)
             rotation_matrix = cv2.getRotationMatrix2D(center, rotation, 1.0)
             overlay_image = cv2.warpAffine(overlay_image, rotation_matrix, (overlay_image.shape[1], overlay_image.shape[0]))
+            if has_alpha:
+                alpha_channel = cv2.warpAffine(alpha_channel, rotation_matrix, (overlay_image.shape[1], overlay_image.shape[0]))
 
         # Apply HSV adjustments
         hsv_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGR2HSV).astype(np.float32)
         
-        # Adjust Hue
-        if hue != 0:
-            hsv_image[:,:,0] = (hsv_image[:,:,0] + hue) % 180
-        
-        # Adjust Saturation and Value
-        hsv_image[:,:,1] = np.clip(hsv_image[:,:,1] * saturation, 0, 255)
-        hsv_image[:,:,2] = np.clip(hsv_image[:,:,2] * value, 0, 255)
+        # Adjust Hue, Saturation, and Value in one go
+        hsv_image[:, :, 0] = (hsv_image[:, :, 0] + hue) % 180
+        hsv_image[:, :, 1] = np.clip(hsv_image[:, :, 1] * saturation, 0, 255)
+        hsv_image[:, :, 2] = np.clip(hsv_image[:, :, 2] * value, 0, 255)
         
         hsv_image = hsv_image.astype(np.uint8)
-
-        # Convert back to BGR
         overlay_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2BGR)
 
         # Recombine with alpha channel if it existed
-        if Alpha:
+        if has_alpha:
             overlay_image = np.dstack((overlay_image, alpha_channel))
 
         # Directly combine with the base image
@@ -1460,7 +1456,7 @@ class TextureTagger:
             display_image = self.prepare_display_image(combined_image)
             
             # Update full res image
-            self.full_res_image = Image.fromarray(combined_image)
+            #self.full_res_image = Image.fromarray(combined_image)
             self.display_image_size = display_image.size
 
             # Display the image
@@ -1499,7 +1495,7 @@ class TextureTagger:
         #selected_thumbnails = self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
         selected_thumbnails = [
                 thumb["name"] if isinstance(thumb, dict) else thumb
-                for thumb in self.db["textures"].get(texture_path, {}).get("selected_thumbnails", [])
+                for thumb in self.db["textures"].get(texture_path.lower(), {}).get("selected_thumbnails", [])
             ]
 
         # Ensure selected_slot is valid
@@ -1516,7 +1512,7 @@ class TextureTagger:
             slot_index = None  # No valid index
 
         # Load the zoom image (used as the base image)
-        zoom_image = self.load_image(texture_path)
+        zoom_image = self.load_image(texture_path.lower())
         if zoom_image is None:
             print(f"Failed to load zoom image: \n\n\n\n{texture_path}\n\n\n\n")
             return
@@ -1529,15 +1525,11 @@ class TextureTagger:
         if slot_index is not None and 0 <= slot_index < len(selected_thumbnails):
             #print("SLOT:", slot_index)
             thumbnail_name = selected_thumbnails[slot_index]
-            thumbnail_name = os.path.basename(thumbnail_name).replace(" ", "_").lower()
-
-            # Construct the full paths for both _diff_overlay and _col_overlay
-
-            thumbnail_name = os.path.basename(thumbnail_name)
+            thumbnail_name = self.get_key_by_name(self.all_assets, thumbnail_name)
             diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
             col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
-            #print(diff_overlay_path)
-            #print(col_overlay_path)
+            print(diff_overlay_path)
+            print(col_overlay_path)
 
             # Check for existence of overlay images
             overlay_path = None
@@ -1566,12 +1558,12 @@ class TextureTagger:
 
             overlay_y_offset = overlay_image.shape[0] // 2
 
-            print(f"Overlay shape: {overlay_image.shape}")
-            print(f"Y offset: {overlay_y_offset}")
+            #print(f"Overlay shape: {overlay_image.shape}")
+            #print(f"Y offset: {overlay_y_offset}")
 
             if overlay_image is not None and texture_path is not None:
-                #print("base: ", texture_path)
-                #print("overlay: ", overlay_path)
+                print("base: ", texture_path)
+                print("overlay: ", overlay_path)
                 try:
                     # Inline combine_overlay function with debug info
                     combined_image = np.copy(zoom_image)
@@ -1580,10 +1572,11 @@ class TextureTagger:
                     #print(f"Overlay shape: {overlay_image.shape}")
                     #print(f"Y offset: {overlay_y_offset}")
                     
-                    # Calculate how many rows we can actually use
-                    available_rows = zoom_image.shape[0] - overlay_y_offset
-                    
-                    combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:overlay_y_offset + available_rows, :zoom_image.shape[1], :]
+                    # Resize overlay to match base dimensions
+                    overlay_resized = cv2.resize(overlay_image, (zoom_image.shape[1], zoom_image.shape[0]), interpolation=cv2.INTER_AREA)
+
+                    # Now use resized overlay
+                    combined_image[overlay_y_offset:, :, :] = overlay_resized[overlay_y_offset:, :, :]
                     image = combined_image
                 except Exception as e:
                     print(f"Error combining images: {str(e)}")
@@ -1608,7 +1601,7 @@ class TextureTagger:
         
         # Clear and display tags
         self.tags_listbox.delete(0, END)
-        stored_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+        stored_tags = self.db["textures"].get(texture_path.lower(), {}).get("tags", [])
         for tag in stored_tags:
             self.tags_listbox.insert(END, tag)
 
@@ -1659,46 +1652,49 @@ class TextureTagger:
             return
 
         # Calculate the mouse position relative to the display image
-        # Calculate the mouse position relative to the display image
         display_width, display_height = self.display_image_size
         full_width, full_height = self.full_res_image.size
-        x_ratio = full_width / display_width
-        y_ratio = full_height / display_height
+
+        # Adjust for potential mirroring or offset
+        adjusted_x = event.x * (full_width / display_width)
+        adjusted_y = event.y * (full_height / display_height)
+
+        # Apply a small left-side offset (5% of width)
+        left_offset = full_width * 0.05
+        adjusted_x = max(0, adjusted_x - left_offset)
 
         # Determine the corresponding coordinates in the full-resolution image
-        full_x = int(event.x * x_ratio)
-        full_y = int(event.y * y_ratio)
+        full_x = int(adjusted_x)
+        full_y = int(adjusted_y)
 
         # Define the size of the zoom preview box
         zoom_box_size = 200  # Fixed size for consistent zoom
         half_box_size = zoom_box_size // 2
 
-        # Adjust to keep the zoom box inside the image boundaries
-        left = full_x - half_box_size
-        right = full_x + half_box_size
-        upper = full_y - half_box_size
-        lower = full_y + half_box_size
+        # Create a black background canvas
+        zoom_canvas = Image.new('RGBA', (zoom_box_size, zoom_box_size), (0, 0, 0, 255))
 
-        # Shift the box if it goes out of bounds
-        if left < 0:
-            right += abs(left)  # Push right side to maintain size
-            left = 0
-        if right > full_width:
-            left -= (right - full_width)
-            right = full_width
+        # Calculate the bounding box for cropping
+        left = max(0, full_x - half_box_size)
+        upper = max(0, full_y - half_box_size)
+        right = min(full_width, full_x + half_box_size)
+        lower = min(full_height, full_y + half_box_size)
 
-        if upper < 0:
-            lower += abs(upper)  # Push lower side to maintain size
-            upper = 0
-        if lower > full_height:
-            upper -= (lower - full_height)
-            lower = full_height
-
-        # Crop the zoom box from the full-resolution image
-        zoom_box = self.full_res_image.crop((left, upper, right, lower))
+        # Crop the available portion of the image
+        try:
+            cropped_zoom = self.full_res_image.crop((left, upper, right, lower))
+            
+            # Calculate offset for placing the cropped image on the black canvas
+            canvas_x = max(0, half_box_size - full_x)
+            canvas_y = max(0, half_box_size - full_y)
+            
+            # Paste the cropped image onto the black canvas
+            zoom_canvas.paste(cropped_zoom, (canvas_x, canvas_y))
+        except Exception as e:
+            print(f"Error creating zoom box: {e}")
 
         # Resize the zoom box for display
-        zoom_box = zoom_box.resize((300, 300), Image.LANCZOS)  # High-quality scaling
+        zoom_box = zoom_canvas.resize((300, 300), Image.LANCZOS)
         zoom_photo = ImageTk.PhotoImage(zoom_box)
 
         # Create a label to show the zoom preview
@@ -1881,9 +1877,11 @@ class TextureTagger:
         """Retrieve textures from the Polyhaven API that match the tags of the current texture."""
         # Get the current texture path
         texture_path = self.filtered_texture_paths[self.current_index]
+        texture_path = texture_path.lower()
 
         # Retrieve tags for the current texture
-        current_tags = self.db["textures"].get(texture_path, {}).get("tags", [])
+        texture_key = next((k for k in self.db["textures"] if k.lower() == texture_path), None)
+        current_tags = self.db["textures"].get(texture_key, {}).get("tags", [])
         if not current_tags:
             return []  # No tags, no matching textures
 
@@ -1965,6 +1963,7 @@ class TextureTagger:
         texture_name_label = os.path.basename(current_texture).replace(".png", "")
 
         # Add to the queue
+        thumbnail_name = thumbnail_name['name']
         self.download_queue.append((current_texture, thumbnail_name, texture_name_label))
         #print(f"[DEBUG] Added to queue: path: {current_texture}, Texture: {texture_name_label}, Thumbnail: {thumbnail_name}")
         #print(f"[DEBUG] Current Queue Length: {len(self.download_queue)}")
@@ -2033,7 +2032,7 @@ class TextureTagger:
         pending_count = len(self.download_queue)
         
         self.progress_label.config(
-            text=f"{completed_count} / {completed_count + pending_count}"
+            text=f"{completed_count} / {pending_count + in_progress_count}"
         )
 
     def process_queue(self):
@@ -2096,6 +2095,7 @@ class TextureTagger:
 
     def get_key_by_name(self, dictionary, target_name):
         for key, value in dictionary.items():
+            #print(value.get("name"))
             if value.get("name") == target_name:  # Check if the 'name' matches the target
                 return key
         return None  # Return None if no match is found
@@ -2114,11 +2114,14 @@ class TextureTagger:
     def _perform_download(self, texture_path, thumbnail_name, texture_name_label):
         """Perform the actual download process for a specific texture and thumbnail."""
         try:
-            texture_id = thumbnail_name
+
             texture_id_download = self.get_key_by_name(self.all_assets, thumbnail_name)
+            #print("thumbnail_name:", thumbnail_name)
 
             texture_path = os.path.normpath(texture_path.strip())
             texture_name_label = texture_name_label.strip()
+
+            #print("url: ", texture_id_download)
 
             # Construct the download URL
             url = f"https://api.polyhaven.com/files/{texture_id_download}"
@@ -2130,14 +2133,14 @@ class TextureTagger:
             # Fetch texture metadata
             data = requests.get(url)
             if data.status_code != 200:
-                messagebox.showerror("Error", f"Failed to fetch texture metadata for '{texture_id}'. Status code: {data.status_code}")
+                messagebox.showerror("Error", f"Failed to fetch texture metadata for '{thumbnail_name}'. Status code: {data.status_code}")
                 return
 
             # Extract URLs and MD5 checksums
             texture_files = self.extract_files_with_md5(data.json())
 
             # Filter files based on required file types
-            required_files = ["_diff_4k.png", "_color_4k.png", "_nor_dx_4k.png", "_arm_4k.png", "_disp_4k.png", "_height_4k.png"]
+            required_files = ["_diffuse_4k.png", "_diff_4k.png", "_color_4k.png", "_nor_dx_4k.png", "_arm_4k.png", "_disp_4k.png", "_height_4k.png"]
             filtered_files = {
                 file_info['url']: file_info['md5']
                 for file_info in texture_files
@@ -2174,7 +2177,7 @@ class TextureTagger:
                     print(f"Failed to download: {texture_url} (Status: {response.status_code})")
 
             # Combine the downloaded textures
-            self.combine_textures(texture_path, thumbnail_name, texture_name_label)
+            self.combine_textures(texture_path, texture_id_download, texture_name_label)
 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during download: {e}")
@@ -2183,12 +2186,10 @@ class TextureTagger:
             try:
                 # Update the progress label
                 self.update_progress_label()
+
                 # Debug: Check tuple being removed
                 normalized_tuple = (texture_path, thumbnail_name, texture_name_label)
                 #print("[DEBUG] Trying to remove (normalized):", repr(normalized_tuple))
-
-                # Debug: Print in-progress list
-                #print("[DEBUG] Full In Progress List (normalized):", [repr((os.path.normpath(item[0]), item[1].strip(), item[2].strip())) for item in self.in_progress])
 
                 # Remove from in-progress and add to completed
                 if normalized_tuple in self.in_progress:
@@ -2209,6 +2210,8 @@ class TextureTagger:
             else:
                 self.currently_downloading = False
                 messagebox.showinfo("Queue", "All downloads completed.")
+                self.update_progress_label()
+                self.completed_downloads = []
 
             # Debugging output
             #"[DEBUG] Completed Downloads:", self.completed_downloads)
@@ -2354,7 +2357,7 @@ class TextureTagger:
         arm_file = find_file("_arm_", down_thumbnail_name)
         nor_file = find_file("_nor_", down_thumbnail_name)
         disp_file = find_file(["_disp_", "_height_"], down_thumbnail_name)
-        diff_file = find_file(["_diff_", "_color_"], down_thumbnail_name)
+        diff_file = find_file(["_diffuse_", "_diff_", "_color_"], down_thumbnail_name)
 
         arm_texture = load_image(arm_file)
         nor_texture = load_image(nor_file)
@@ -2455,7 +2458,7 @@ class TextureTagger:
             return
 
         target_size = (results_image.shape[1], results_image.shape[0])  # (width, height)
-        print(f"Retrieved target size from results file: {target_size}")
+        #print(f"Retrieved target size from results file: {target_size}")
 
         # Check if existing overlay exists and is larger
         overlay_output_path = os.path.join(OVERLAY_FOLDER, f"{down_thumbnail_name}_overlay.png")
