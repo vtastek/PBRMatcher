@@ -115,9 +115,17 @@ def convert_image_to_dxt(image_path):
     if image_path.lower().endswith(".dds") and has_all_mipmaps(image_path):
         print(f"Skipping {image_path}, already has mipmaps.")
         return
-
+    
     try:
         img = Image.open(image_path)
+        if "_spec.png" in image_path.lower():
+            img = img.convert("RGBA")
+            r, g, b, a = img.split()
+            g = Image.eval(g, lambda x: 255 - x)  # Invert green channel
+            b = Image.new("L", img.size, 128)  # Set blue channel to 0.5 (128 in 8-bit)
+            img = Image.merge("RGBA", (r, g, b, a))
+            img.save(image_path)  # Overwrite original image before conversion
+        
         dxt_format = "dxt5" if img.mode == "RGBA" else "dxt1"
         img.close()
 
