@@ -1,0 +1,16 @@
+*
+!main.py
+!tile.py
+!diff.py
+!miss.py
+!conv.py
+!ddsv.py
+!lodg.py
+!modules/
+!modules/*
+!lib/
+!lib/site-packages/
+!lib/site-packages/es3/
+!lib/site-packages/es3/*
+!lib/site-packages/es3/**
+!.gitignore
