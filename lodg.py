@@ -609,32 +609,34 @@ class VFSLODGenerator:
 def main():
     # Example data paths in order of precedence
     data_paths = [
-        "C:/openmwassets/ogmeshes",
+        # "C:/openmwassets/ogmeshes",
+        # "C:/openmwassets/met",
+        # "C:/mgem/Morrowindex/Data Files",
+        # "C:/openmwassets/mop",
+        # "C:/openmwassets/sponzapbr",
+        # "C:/openmwassets/axepbr",
+        # "C:/openmwassets/fx",
+        # "C:/openmwassets/cavernspbr",
+        # "C:/openmwassets/townspbr",
+        # "C:/openmwassets/trdata",
+        # "C:/openmwassets/oaab",
+        # "C:/openmwassets/remirosgrass",
+        # "C:/openmwassets/remirostest",
+        # "C:/openmwassets/balmora",
+        # "C:/openmwassets/vivec",
+        # "C:/openmwassets/betterfx",
+        # "C:/openmwassets/cinematic",
+        # "C:/openmwassets/cavespbr",
+        # "C:/openmwassets/rocky",
+        # "C:/openmwassets/trans",
+        # "C:/openmwassets/vivecpbr",
+        # "C:/openmwassets/steel",
+        # "C:/openmwassets/attack",
+        # "C:/openmwassets/gitd",
+        # "C:/openmwassets/mopvfx",
+        # "C:/projects/texturematcher/staging/openmwassets"
         "C:/openmwassets/met",
-        "C:/mgem/Morrowindex/Data Files",
-        "C:/openmwassets/mop",
-        "C:/openmwassets/sponzapbr",
-        "C:/openmwassets/axepbr",
-        "C:/openmwassets/fx",
-        "C:/openmwassets/cavernspbr",
-        "C:/openmwassets/townspbr",
-        "C:/openmwassets/trdata",
-        "C:/openmwassets/oaab",
-        "C:/openmwassets/remirosgrass",
-        "C:/openmwassets/remirostest",
-        "C:/openmwassets/balmora",
-        "C:/openmwassets/vivec",
-        "C:/openmwassets/betterfx",
-        "C:/openmwassets/cinematic",
-        "C:/openmwassets/cavespbr",
-        "C:/openmwassets/rocky",
-        "C:/openmwassets/trans",
-        "C:/openmwassets/vivecpbr",
-        "C:/openmwassets/steel",
-        "C:/openmwassets/attack",
-        "C:/openmwassets/gitd",
-        "C:/openmwassets/mopvfx",
-        "C:/projects/texturematcher/staging/openmwassets"
+        "C:/openmwassets/townspbr"
     ]
     
     # Specify custom output folder for LOD files
@@ -643,7 +645,7 @@ def main():
     # Specify allowed folders (case-insensitive)
     allowed_folders = {'x', 'f', 'd', 'l'}
     
-    generator = VFSLODGenerator(data_paths, output_folder, allowed_folders=allowed_folders, debug_mode=True)
+    generator = VFSLODGenerator(data_paths, output_folder, allowed_folders=allowed_folders, debug_mode=False)
     generator.process_all()
 
 if __name__ == "__main__":
