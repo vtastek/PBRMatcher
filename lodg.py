@@ -489,12 +489,112 @@ class VFSLODGenerator:
         
         # Sort to clean up the stream
         stream.sort()
+    
+    def remove_root_collision_node(self, stream):
+        """
+        Remove RootCollisionNode and all its children from the NIF stream.
+        Looks for nodes named "RootCollisionNode" as well as nodes of RootCollisionNode type.
+        
+        Args:
+            stream (NiStream): The NIF stream to process
+        """
+        from es3.nif import RootCollisionNode, NiNode
+
+        def remove_branch(stream, node):
+            """
+            Remove a branch from a NIF stream, including the node and all its children.
+            
+            Args:
+                stream (NiStream): The NIF stream containing the node
+                node (NiObject): The node to remove
+                
+            Returns:
+                bool: True if removal was successful, False otherwise
+            """
+            if node is None:
+                return False
+                
+            def remove_children_recursive(node, seen=None):
+                """Recursively remove all children of a node"""
+                if seen is None:
+                    seen = set()
+                    
+                if node in seen:
+                    return
+                seen.add(node)
+                
+                # If node has children, process them first
+                if hasattr(node, 'children') and node.children:
+                    # Process all children first
+                    for child in node.children:
+                        if child is not None:
+                            remove_children_recursive(child, seen)
+                            
+                    # Now clear the children list if possible
+                    if isinstance(node, NiNode):
+                        node.children = []
+                
+                # Handle effects if they exist (only for NiNode)
+                if isinstance(node, NiNode) and hasattr(node, 'effects'):
+                    node.effects = []
+                
+                # Clear properties if they exist
+                if hasattr(node, 'properties'):
+                    # Make a copy since we're modifying
+                    props = node.properties.copy() if node.properties else []
+                    for prop in props:
+                        if prop in node.properties:
+                            node.properties.remove(prop)
+            
+            # First check if node is in the stream
+            is_root = node in stream.roots
+            has_parent = False
+            parent_node = None
+            
+            # Look for parent node
+            for potential_parent in stream.objects_of_type(NiNode):
+                if hasattr(potential_parent, 'children') and node in potential_parent.children:
+                    has_parent = True
+                    parent_node = potential_parent
+                    break
+            
+            # Only proceed if node is either a root or has a parent
+            if not (is_root or has_parent):
+                return False
+            
+            # Remove all children recursively
+            remove_children_recursive(node)
+            
+            # Remove from parent if it exists
+            if parent_node is not None:
+                parent_node.children = [child for child in parent_node.children if child != node]
+            
+            # Remove from roots if it's a root
+            if is_root:
+                stream.roots = [root for root in stream.roots if root != node]
+            
+            return True
+
+        # Find all nodes that are either RootCollisionNode type or named "RootCollisionNode"
+        collision_nodes = []
+        for obj in stream.objects():
+            if (isinstance(obj, NiNode) and  # Must be a node
+                (isinstance(obj, RootCollisionNode) or  # Either RootCollisionNode type
+                (hasattr(obj, 'name') and obj.name == "RootCollisionNode"))):  # Or named RootCollisionNode
+                collision_nodes.append(obj)
+        
+        # Remove each collision node
+        for node in collision_nodes:
+            remove_branch(stream, node)
 
     def process_mesh(self, filepath):
         """Process a single mesh file"""
         try:
             stream = nif.NiStream()
             stream.load(filepath)
+
+            # Remove RootCollisionNode before other processing
+            self.remove_root_collision_node(stream)
 
             modified = False
             for geom in stream.objects_of_type(nif.NiTriShape):
