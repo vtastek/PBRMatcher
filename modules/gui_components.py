@@ -4,6 +4,9 @@ import ctypes
 import cv2
 import tkinter as tk
 import numpy as np
+import time
+from OpenGL.GL import *
+from pyopengltk import OpenGLFrame
 
 from tkinter import Label, Entry, Button, Listbox, END, Frame, ttk, font, messagebox
 from PIL import Image, ImageTk
@@ -25,6 +28,69 @@ try:
     scale_factor = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100  # Get scaling factor
 except AttributeError:
     scale_factor = 1  # Default if unsupported
+
+class AppOgl(OpenGLFrame):
+    def initgl(self):
+        """Initialize OpenGL settings and create a texture."""
+        glViewport(0, 0, self.width, self.height)
+        glClearColor(0.0, 0.0, 0.0, 1.0)
+
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        glOrtho(-1, 1, -1, 1, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadIdentity()
+
+        # Generate an empty OpenGL texture (image will be updated later)
+        self.texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+        glEnable(GL_TEXTURE_2D)
+
+        # Wait here until OpenGL is fully initialized
+        self.gl_initialized = False
+
+        def wait_for_gl():
+            self.update_idletasks()  # Process pending events
+            if hasattr(self, "texture_id"):
+                self.gl_initialized = True
+            else:
+                self.after(10, wait_for_gl)  # Retry in 10ms
+
+        wait_for_gl()
+
+    def redraw(self):
+        """Render a textured quad."""
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        glLoadIdentity()
+
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+
+        glBegin(GL_QUADS)
+        glTexCoord2f(0.0, 0.0); glVertex2f(-1.0, -1.0)  # Bottom-left
+        glTexCoord2f(1.0, 0.0); glVertex2f(1.0, -1.0)   # Bottom-right
+        glTexCoord2f(1.0, 1.0); glVertex2f(1.0, 1.0)    # Top-right
+        glTexCoord2f(0.0, 1.0); glVertex2f(-1.0, 1.0)   # Top-left
+        glEnd()
+
+    def GL_update_texture(self, image):
+        """Updates the OpenGL texture with a new image."""
+        image = image.convert("RGB")
+        self.image_width, self.image_height = image.size
+
+        # Convert image to raw bytes
+        image_data = image.tobytes("raw", "RGB", 0, -1)
+
+        # Bind and update the existing OpenGL texture
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, self.image_width, self.image_height,
+                    0, GL_RGB, GL_UNSIGNED_BYTE, image_data)
+
+        # Force redraw
+        self.redraw()
+
 
 class TextureTagger:
     def __init__(self, root, db):
@@ -164,6 +230,21 @@ class TextureTagger:
         self.value_slider.bind("<Button-3>", self.reset_value)
         self.label_frame = Frame(self.gridA3, bg="black")
         self.label_frame.pack()
+
+        # Create a container frame within the main window.
+        self.gl_container = tk.Frame(self.gridA3, width=320, height=200)
+        self.gl_container.pack(fill=tk.BOTH, expand=True)
+
+        # Instantiate the OpenGL frame inside the container.
+        self.gl_frame = AppOgl(self.gl_container, width=320, height=200)
+        self.gl_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Enable animation
+        self.gl_frame.animate = 1
+        self.gl_frame.update_idletasks()
+        #app.after(100, app.printContext)
+
+
         self.image_label = Label(self.label_frame, bg="black")
         self.image_label.pack(fill="both", padx=10, pady=10)
         self.image_label.bind("<Motion>", self.show_zoom_preview)
@@ -1264,6 +1345,9 @@ class TextureTagger:
         photo = ImageTk.PhotoImage(display_image)
         self.image_label.config(image=photo)
         self.image_label.image = photo
+
+        self.gl_frame.after(500, lambda: self.gl_frame.GL_update_texture(display_image))
+        self.gl_frame.GL_update_texture(display_image)
 
         # Limit the width, allow overflow
         max_width = 512  # Set your desired maximum width here

@@ -1,4 +1,6 @@
 from tkinter import Tk
+from OpenGL import GL
+from pyopengltk import OpenGLFrame
 from modules.constants import SET_PROFILER
 from modules.utility_functions import set_profiler
 from modules.database_operations import load_database
