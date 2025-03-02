@@ -88,11 +88,11 @@ class TextureTagger:
         self.main.columnconfigure(0, weight=1)
 
         # Define frames with fixed width and borders for debugging
-        self.gridA1 = Frame(self.gridA, width=50, bg="#999999", borderwidth=2, relief="solid")
-        self.gridA2 = Frame(self.gridA, borderwidth=2, relief="solid")  # Flexible width
-        self.gridA3 = Frame(self.gridA, width=900, bg="#999999", borderwidth=2, relief="solid")  # Fixed 900px
-        self.gridA4 = Frame(self.gridA, borderwidth=2, relief="solid")  # Flexible width
-        self.gridA5 = Frame(self.gridA, width=50, bg="#999999", borderwidth=2, relief="solid")  # Fixed 50px
+        self.gridA1 = Frame(self.gridA, width=50, bg="#999999")
+        self.gridA2 = Frame(self.gridA)  # Flexible width
+        self.gridA3 = Frame(self.gridA, width=900, bg="#999999")  # Fixed 900px
+        self.gridA4 = Frame(self.gridA)  # Flexible width
+        self.gridA5 = Frame(self.gridA, width=50, bg="#999999")  # Fixed 50px
 
         # Stop automatic resizing
         self.gridA1.grid_propagate(False)

@@ -8,9 +8,9 @@
 !lodg.py
 !modules/
 !modules/*
-!modules/assets/
-!modules/assets/shaders/
-!modules/assets/shaders/*
+!assets/
+!assets/shaders/
+!assets/shaders/*
 !lib/
 !lib/site-packages/
 !lib/site-packages/es3/
