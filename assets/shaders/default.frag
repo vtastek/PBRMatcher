@@ -9,6 +9,7 @@ uniform float rot;
 uniform float hue;
 uniform float sat;
 uniform float val;
+uniform float hsvToggle;
 
 out vec4 FragColor;
 
@@ -41,7 +42,7 @@ vec2 rotate(vec2 tex, float angle) {
 void main() {
     // Sample both textures
     vec4 texColor1 = texture(textureSampler1, TexCoord);
-    vec2 tex = rotate(TexCoord, rot);
+    vec2 tex = rotate(TexCoord, radians(rot));
     vec4 texColor2 = texture(textureSampler2, tex);
 
     vec3 hsv = RGBtoHSV(texColor2.rgb);
@@ -59,6 +60,21 @@ void main() {
 
     // Blend the two textures
     vec4 blendedColor = mix(texColor1, texColor2, step(1.0 - mixRatio, 1.0 - TexCoord.y));
+
+    hsv = RGBtoHSV(blendedColor.rgb);
+    // create 3 strips from UV and show hsv.x, hsv.y, hsv.z
+    vec4 stripes = vec4(0.0, 0.0, 0.0, 1.0);
+    if (TexCoord.x < 0.33) {
+        stripes = vec4(hsv.x, hsv.x, hsv.x, 1.0);
+    } else if (TexCoord.x < 0.66) {
+        stripes = vec4(hsv.y, hsv.y, hsv.y, 1.0);
+    } else {
+        stripes = vec4(hsv.z, hsv.z, hsv.z, 1.0);
+    }
+    
+    if(hsvToggle == 1.0) {
+        blendedColor.rgb = stripes.rgb;
+    }
     
     FragColor = vec4(blendedColor.rgb, 1.0);
 }

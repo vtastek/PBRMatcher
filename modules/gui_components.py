@@ -191,6 +191,7 @@ class TextureTagger:
         self.image_label.bind("<Motion>", self.show_zoom_preview)
         self.image_label.bind("<Leave>", self.hide_zoom_preview)
 
+
         # Create a container frame within the main window.
         self.gl_container = tk.Frame(self.image_label, width=2, height=2)
         self.gl_container.pack(fill=tk.BOTH, expand=True)
@@ -198,6 +199,7 @@ class TextureTagger:
         # Instantiate the OpenGL frame inside the container.
         self.gl_frame = AppOgl(self.gl_container, width=2, height=2)
         self.gl_frame.pack(fill=tk.BOTH, expand=True)
+        self.label_frame.bind("<Button-1>", self.gl_frame.hsv_click)
 
         # Enable animation
         self.gl_frame.animate = 1

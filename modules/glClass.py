@@ -129,6 +129,7 @@ class AppOgl(OpenGLFrame):
         self.hue_uniform = glGetUniformLocation(self.shader_program, "hue")
         self.saturation_uniform = glGetUniformLocation(self.shader_program, "sat")
         self.value_uniform = glGetUniformLocation(self.shader_program, "val")
+        self.hsvToggle_uniform = glGetUniformLocation(self.shader_program, "hsvToggle")
         
         # Initialize mix ratio
         self.mix_ratio = 0.0  # Negative means use animated mix
@@ -136,6 +137,7 @@ class AppOgl(OpenGLFrame):
         self.hue = 0.0
         self.sat = 1.0
         self.val = 1.0
+        self.hsvToggle = 0.0
 
         
         # Initialize time variable for animation
@@ -240,6 +242,7 @@ class AppOgl(OpenGLFrame):
         glUniform1f(self.hue_uniform, self.hue)
         glUniform1f(self.saturation_uniform, self.sat)
         glUniform1f(self.value_uniform, self.val)
+        glUniform1f(self.hsvToggle_uniform, self.hsvToggle)
         
         # Bind vertex array and draw
         glBindVertexArray(self.vao)
@@ -410,4 +413,11 @@ class AppOgl(OpenGLFrame):
     
     def set_value(self, value):
         self.val = value
+        self.redraw()
+
+    def hsv_click(self, event=None):
+        if self.hsvToggle == 1.0:
+            self.hsvToggle = 0.0
+        else:
+            self.hsvToggle = 1.0
         self.redraw()
