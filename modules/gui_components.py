@@ -5,8 +5,7 @@ import cv2
 import tkinter as tk
 import numpy as np
 import time
-from OpenGL.GL import *
-from pyopengltk import OpenGLFrame
+
 
 from tkinter import Label, Entry, Button, Listbox, END, Frame, ttk, font, messagebox
 from PIL import Image, ImageTk
@@ -19,8 +18,11 @@ from modules.api_operations import fetch_api_data
 from modules.thumbnail_operations import fetch_thumbnail
 from modules.utility_functions import translate_texture_path, center_window, get_key_by_name
 from modules.database_operations import save_database
+from modules.glClass import AppOgl
 from modules.texture_operations import TextureOperations
 from modules.download_manager import DownloadManager
+
+
 
 # Enable DPI awareness
 try:
@@ -28,68 +30,6 @@ try:
     scale_factor = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100  # Get scaling factor
 except AttributeError:
     scale_factor = 1  # Default if unsupported
-
-class AppOgl(OpenGLFrame):
-    def initgl(self):
-        """Initialize OpenGL settings and create a texture."""
-        glViewport(0, 0, self.width, self.height)
-        glClearColor(0.0, 0.0, 0.0, 1.0)
-
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        glOrtho(-1, 1, -1, 1, -1, 1)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
-
-        # Generate an empty OpenGL texture (image will be updated later)
-        self.texture_id = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, self.texture_id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-
-        glEnable(GL_TEXTURE_2D)
-
-        # Wait here until OpenGL is fully initialized
-        self.gl_initialized = False
-
-        def wait_for_gl():
-            self.update_idletasks()  # Process pending events
-            if hasattr(self, "texture_id"):
-                self.gl_initialized = True
-            else:
-                self.after(10, wait_for_gl)  # Retry in 10ms
-
-        wait_for_gl()
-
-    def redraw(self):
-        """Render a textured quad."""
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glLoadIdentity()
-
-        glBindTexture(GL_TEXTURE_2D, self.texture_id)
-
-        glBegin(GL_QUADS)
-        glTexCoord2f(0.0, 0.0); glVertex2f(-1.0, -1.0)  # Bottom-left
-        glTexCoord2f(1.0, 0.0); glVertex2f(1.0, -1.0)   # Bottom-right
-        glTexCoord2f(1.0, 1.0); glVertex2f(1.0, 1.0)    # Top-right
-        glTexCoord2f(0.0, 1.0); glVertex2f(-1.0, 1.0)   # Top-left
-        glEnd()
-
-    def GL_update_texture(self, image):
-        """Updates the OpenGL texture with a new image."""
-        image = image.convert("RGB")
-        self.image_width, self.image_height = image.size
-
-        # Convert image to raw bytes
-        image_data = image.tobytes("raw", "RGB", 0, -1)
-
-        # Bind and update the existing OpenGL texture
-        glBindTexture(GL_TEXTURE_2D, self.texture_id)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, self.image_width, self.image_height,
-                    0, GL_RGB, GL_UNSIGNED_BYTE, image_data)
-
-        # Force redraw
-        self.redraw()
 
 
 class TextureTagger:
@@ -141,28 +81,39 @@ class TextureTagger:
         self.root.rowconfigure(0, weight=1)
         self.main.columnconfigure(0, weight=1)
         self.main.rowconfigure(0, weight=1)
-        self.gridA = Frame(self.main, bg="#999999")
+        self.gridA = Frame(self.main, bg="#999999", height=700)
         self.gridA.grid(row=0, column=0, sticky="nsew")
+        self.gridA.grid_propagate(False)
         self.main.rowconfigure(0, weight=1)
         self.main.columnconfigure(0, weight=1)
-        self.gridA1 = Frame(self.gridA, bg="#999999")
-        self.gridA2 = Frame(self.gridA)
-        self.gridA3 = Frame(self.gridA, bg="#999999")
-        self.gridA4 = Frame(self.gridA, bg="#999999")
-        self.gridA5 = Frame(self.gridA, bg="#999999")
+
+        # Define frames with fixed width and borders for debugging
+        self.gridA1 = Frame(self.gridA, width=50, bg="#999999", borderwidth=2, relief="solid")
+        self.gridA2 = Frame(self.gridA, borderwidth=2, relief="solid")  # Flexible width
+        self.gridA3 = Frame(self.gridA, width=900, bg="#999999", borderwidth=2, relief="solid")  # Fixed 900px
+        self.gridA4 = Frame(self.gridA, borderwidth=2, relief="solid")  # Flexible width
+        self.gridA5 = Frame(self.gridA, width=50, bg="#999999", borderwidth=2, relief="solid")  # Fixed 50px
+
+        # Stop automatic resizing
+        self.gridA1.grid_propagate(False)
         self.gridA3.grid_propagate(False)
+        self.gridA5.grid_propagate(False)
+
+        # Grid placement
         self.gridA1.grid(column=0, row=0, sticky="ns", padx=5)
-        self.gridA2.grid(column=1, row=0, sticky="nsew")
+        self.gridA2.grid(column=1, row=0, sticky="ns")  # Shares remaining space
         self.gridA3.grid(column=2, row=0, sticky="nsew")
-        self.gridA4.grid(column=3, row=0, sticky="nsew")
-        self.gridA5.grid(column=4, row=0, sticky="ns", padx=5)
+        self.gridA4.grid(column=3, row=0, sticky="ns")  # Shares remaining space
+        self.gridA5.grid(column=4, row=0, sticky="ns", padx=5)  # Right-aligned
+
+        # Ensure proper column behavior
         self.gridA.columnconfigure(0, weight=0, minsize=50)
-        self.gridA.columnconfigure(1, weight=1, minsize=400)
-        self.gridA.columnconfigure(2, weight=2)
-        self.gridA.columnconfigure(3, weight=1, minsize=400)
+        self.gridA.columnconfigure(1, weight=0, minsize=300)  
+        self.gridA.columnconfigure(2, weight=1, minsize=900)
+        self.gridA.columnconfigure(3, weight=0, minsize=300)  
         self.gridA.columnconfigure(4, weight=0, minsize=50)
-        self.gridA4.columnconfigure(0, weight=1)
-        self.gridA4.rowconfigure(0, weight=1)
+
+
         self.gridB = Frame(self.main, bg="#999999")
         self.gridB.grid(column=0, row=1, sticky="nsew")
         self.gridC = Frame(self.main, bg="#999999")
@@ -231,17 +182,7 @@ class TextureTagger:
         self.label_frame = Frame(self.gridA3, bg="black")
         self.label_frame.pack()
 
-        # Create a container frame within the main window.
-        self.gl_container = tk.Frame(self.gridA3, width=320, height=200)
-        self.gl_container.pack(fill=tk.BOTH, expand=True)
 
-        # Instantiate the OpenGL frame inside the container.
-        self.gl_frame = AppOgl(self.gl_container, width=320, height=200)
-        self.gl_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Enable animation
-        self.gl_frame.animate = 1
-        self.gl_frame.update_idletasks()
         #app.after(100, app.printContext)
 
 
@@ -249,6 +190,19 @@ class TextureTagger:
         self.image_label.pack(fill="both", padx=10, pady=10)
         self.image_label.bind("<Motion>", self.show_zoom_preview)
         self.image_label.bind("<Leave>", self.hide_zoom_preview)
+
+        # Create a container frame within the main window.
+        self.gl_container = tk.Frame(self.image_label, width=2, height=2)
+        self.gl_container.pack(fill=tk.BOTH, expand=True)
+
+        # Instantiate the OpenGL frame inside the container.
+        self.gl_frame = AppOgl(self.gl_container, width=2, height=2)
+        self.gl_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Enable animation
+        self.gl_frame.animate = 1
+        self.gl_frame.update_idletasks()
+
         self.previous_button = Button(self.gridA1, font=button_font, width=int(7 * scale_factor), text="Previous", command=self.previous_texture)
         self.previous_button.pack(padx=10, pady=5, expand=True)
         self.next_button = Button(self.gridA5, font=button_font, width=int(7 * scale_factor), text="Next", command=self.next_texture)
@@ -1149,71 +1103,21 @@ class TextureTagger:
         self.display_thumbnails()
 
     def quick_update_texture(self, rotation=None, hue=None, saturation=None, value=None):
-        """
-        Quickly update the current texture with new rotation and HSV settings.
-        This method assumes the base overlay has already been loaded.
-        """
         # If no overlay image is currently loaded, do nothing
-        if not hasattr(self, 'current_overlay_image') or self.current_overlay_image is None:
+        if not hasattr(self, 'overlay_image') or self.overlay_image is None:
+            print("No overlay image loaded.")
             return
-
-        # Use current values if not specified
+        
+         # Use current values if not specified
         rotation = self.rotation_var.get() if rotation is None else rotation
         hue = self.hue_var.get() if hue is None else hue
         saturation = self.saturation_var.get() if saturation is None else saturation
         value = self.value_var.get() if value is None else value
 
-        # Create a copy of the original overlay to manipulate
-        overlay_image = np.copy(self.current_overlay_image)
-
-        # Check for alpha channel
-        has_alpha = overlay_image.shape[2] == 4
-        if has_alpha:
-            alpha_channel = overlay_image[:, :, 3]
-            overlay_image = overlay_image[:, :, :3]
-
-        # Apply rotation
-        if rotation != 0:
-            center = (overlay_image.shape[1] // 2, overlay_image.shape[0] // 2)
-            rotation_matrix = cv2.getRotationMatrix2D(center, rotation, 1.0)
-            overlay_image = cv2.warpAffine(overlay_image, rotation_matrix, (overlay_image.shape[1], overlay_image.shape[0]))
-            if has_alpha:
-                alpha_channel = cv2.warpAffine(alpha_channel, rotation_matrix, (overlay_image.shape[1], overlay_image.shape[0]))
-
-        # Apply HSV adjustments
-        hsv_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGR2HSV).astype(np.float32)
-        
-        # Adjust Hue, Saturation, and Value in one go
-        hsv_image[:, :, 0] = (hsv_image[:, :, 0] + hue) % 180
-        hsv_image[:, :, 1] = np.clip(hsv_image[:, :, 1] * saturation, 0, 255)
-        hsv_image[:, :, 2] = np.clip(hsv_image[:, :, 2] * value, 0, 255)
-        
-        hsv_image = hsv_image.astype(np.uint8)
-        overlay_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2BGR)
-
-        # Recombine with alpha channel if it existed
-        if has_alpha:
-            overlay_image = np.dstack((overlay_image, alpha_channel))
-
-        # Directly combine with the base image
-        if hasattr(self, 'current_zoom_image'):
-            combined_image = np.copy(self.current_zoom_image)
-            overlay_y_offset = combined_image.shape[0] // 2
-            available_rows = combined_image.shape[0] - overlay_y_offset
-            
-            combined_image[overlay_y_offset:, :, :] = overlay_image[overlay_y_offset:overlay_y_offset + available_rows, :combined_image.shape[1], :]
-
-            # Prepare the resized version (for display)
-            display_image = self.prepare_display_image(combined_image)
-            
-            # Update full res image
-            #self.full_res_image = Image.fromarray(combined_image)
-            self.display_image_size = display_image.size
-
-            # Display the image
-            photo = ImageTk.PhotoImage(display_image)
-            self.image_label.config(image=photo)
-            self.image_label.image = photo
+        self.gl_frame.set_rotation(rotation)
+        self.gl_frame.set_hue(hue)
+        self.gl_frame.set_saturation(saturation)
+        self.gl_frame.set_value(value)
             
     def display_texture(self, entered_texture_name = None, manipulated_overlay_image=None):
         """Update the texture based on the user input."""
@@ -1294,64 +1198,36 @@ class TextureTagger:
         else:
             overlay_path = None
 
-        Alpha = False
+        display_image = self.prepare_display_image(image)
+    
+        self.d_width, self.d_height = display_image.size
+        
+        self.label_frame.config(width=self.d_width, height=self.d_height)
+        self.label_frame.pack_propagate(False)  # This prevents the frame from resizing to fit contents
+        self.label_frame.pack()
+        self.image_label.config(width=self.d_width, height=self.d_height)
+        self.image_label.pack_propagate(False)  # This prevents the label from resizing to fit contents
+        self.image_label.pack()
 
-        # Try to load and combine overlay if available
+        self.gl_frame.set_initial_size(self.d_width, self.d_height)
+        self.gl_frame.GL_update_texture(display_image)
+        
         if overlay_path:
             overlay_image = self.texture_operations.load_image(overlay_path)
-            self.current_overlay_image = overlay_image  # Store the original overlay
-
-            if overlay_image.shape[2] == 3:
-                Alpha = False
+            if overlay_image is not None:
+                overlay_image = self.prepare_display_image(overlay_image)
+                self.overlay_image = overlay_image
+                self.gl_frame.GL_update_texture(overlay_image, 1)
+                self.gl_frame.set_mix_ratio(0.5)
             else:
-                Alpha = True
-                alpha_channel = overlay_image[:, :, 3]
-
-
-            overlay_y_offset = overlay_image.shape[0] // 2
-
-            #print(f"Overlay shape: {overlay_image.shape}")
-            #print(f"Y offset: {overlay_y_offset}")
-
-            if overlay_image is not None and texture_path is not None:
-                print("base: ", texture_path)
-                print("overlay: ", overlay_path)
-                try:
-                    # Inline combine_overlay function with debug info
-                    combined_image = np.copy(zoom_image)
-                    overlay_y_offset = zoom_image.shape[0] // 2
-                    #print(f"Base shape: {zoom_image.shape}")
-                    #print(f"Overlay shape: {overlay_image.shape}")
-                    #print(f"Y offset: {overlay_y_offset}")
-                    
-                    # Resize overlay to match base dimensions
-                    overlay_resized = cv2.resize(overlay_image, (zoom_image.shape[1], zoom_image.shape[0]), interpolation=cv2.INTER_AREA)
-
-                    # Now use resized overlay
-                    combined_image[overlay_y_offset:, :, :] = overlay_resized[overlay_y_offset:, :, :]
-                    image = combined_image
-                except Exception as e:
-                    print(f"Error combining images: {str(e)}")
-
-        # Prepare the resized version (for display)
-        display_image = self.prepare_display_image(image)
-        
-        
-        self.full_res_image = Image.fromarray(image)
-        # Save the display size for zoom preview calculations
-        self.display_image_size = display_image.size
-
-        # Display the image
-        photo = ImageTk.PhotoImage(display_image)
-        self.image_label.config(image=photo)
-        self.image_label.image = photo
-
-        self.gl_frame.after(500, lambda: self.gl_frame.GL_update_texture(display_image))
-        self.gl_frame.GL_update_texture(display_image)
+                print(f"Failed to load overlay image: {overlay_path}")
+                self.gl_frame.set_mix_ratio(0.0)
+        else:
+            self.gl_frame.set_mix_ratio(0.0)
 
         # Limit the width, allow overflow
-        max_width = 512  # Set your desired maximum width here
-        self.image_label.config(width=max_width)
+        #max_width = 512  # Set your desired maximum width here
+        #self.image_label.config(width=max_width)
 
         
         # Clear and display tags
