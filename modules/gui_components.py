@@ -179,6 +179,10 @@ class TextureTagger:
         self.value_display = ttk.Label(self.gridA2, text="Value: 1.0")
         self.value_display.pack()
         self.value_slider.bind("<Button-3>", self.reset_value)
+        self.save_hsvr_button = Button(self.gridA2, font=7, text="Save HSVR", command=self.save_hsvr)
+        self.save_hsvr_button.pack(pady=10)
+
+
         self.label_frame = Frame(self.gridA3, bg="black")
         self.label_frame.pack()
 
@@ -359,8 +363,6 @@ class TextureTagger:
         self.autocomplete_list.pack_forget()  # Start hidden
         self.scrollbar.pack_forget()  # Start hidden
 
-
-
         thumb_button_frame = Frame(self.gridC)
         thumb_button_frame.pack()
    
@@ -437,6 +439,141 @@ class TextureTagger:
             self.value_display.config(text="Value: 1.0")
             self.value_slider.set(1.0)
             return "break"
+        
+
+    def update_hsvr_settings(self, hsvr_settings, update_texture=True):
+        """
+        Update all HSVR sliders and displays at once from a settings dictionary
+        
+        Args:
+            hsvr_settings: Dictionary with keys 'hue', 'saturation', 'value', 'rotation'
+            update_texture: Whether to update the texture after setting values
+        """
+        # Update hue
+        hue = int(float(hsvr_settings.get("hue", 0)))
+        self.hue_var.set(hue)
+        self.hue_display.config(text=f"Hue: {hue}")
+        self.hue_slider.set(hue)
+        
+        # Update saturation
+        saturation = round(float(hsvr_settings.get("saturation", 1.0)), 2)
+        self.saturation_var.set(saturation)
+        self.saturation_display.config(text=f"Saturation: {saturation}")
+        self.saturation_slider.set(saturation)
+        
+        # Update value
+        value = round(float(hsvr_settings.get("value", 1.0)), 2)
+        self.value_var.set(value)
+        self.value_display.config(text=f"Value: {value}")
+        self.value_slider.set(value)
+        
+        # Update rotation (with snap to 90 degrees)
+        rotation = int(float(hsvr_settings.get("rotation", 0)))
+        snapped_rotation = (rotation // 90) * 90
+        self.rotation_var.set(snapped_rotation)
+        self.rotation_display.config(text=f"Rotation: {snapped_rotation}°")
+        self.rotation_slider.set(snapped_rotation)
+        
+        # Update texture if requested
+        if update_texture:
+            self.quick_update_texture(
+                hue=hue,
+                saturation=saturation,
+                value=value,
+                rotation=snapped_rotation
+            )
+
+    def reset_hsvr(self, update_texture=True):
+        """
+        Reset all HSVR sliders to their default values
+        
+        Args:
+            update_texture: Whether to update the texture after resetting values
+        """
+        # Reset hue to 0
+        self.hue_var.set(0)
+        self.hue_display.config(text="Hue: 0")
+        self.hue_slider.set(0)
+        
+        # Reset saturation to 1.0
+        self.saturation_var.set(1.0)
+        self.saturation_display.config(text="Saturation: 1.0")
+        self.saturation_slider.set(1.0)
+        
+        # Reset value to 1.0
+        self.value_var.set(1.0)
+        self.value_display.config(text="Value: 1.0")
+        self.value_slider.set(1.0)
+        
+        # Reset rotation to 0
+        self.rotation_var.set(0)
+        self.rotation_display.config(text="Rotation: 0°")
+        self.rotation_slider.set(0)
+        
+        # Update texture if requested
+        if update_texture:
+            self.quick_update_texture(
+                hue=0,
+                saturation=1.0,
+                value=1.0,
+                rotation=0
+            )
+
+    def save_hsvr(self, slot_index=None):
+        """Save the current HSVR values to the database for the selected thumbnail"""
+        # Get current HSVR values
+        hsvr = {
+            "rotation": self.rotation_var.get(),
+            "hue": self.hue_var.get(),
+            "saturation": self.saturation_var.get(),
+            "value": self.value_var.get()
+        }
+        
+        print(f"Debug - HSVR values to save: {hsvr}")
+        print(f"Debug - Slot index: {slot_index}")
+        
+        # Get the current texture path
+        current_texture = self.filtered_texture_paths[self.current_index]
+        print(f"Debug - Current texture path: {current_texture}")
+        
+        # Check if texture exists in database
+        if current_texture not in self.db["textures"]:
+            print(f"Error - Texture {current_texture} not found in database")
+            return
+        
+        # Get the selected thumbnails for the current texture
+        selected_thumbnails = self.db["textures"][current_texture]["selected_thumbnails"]
+        print(f"Debug - Selected thumbnails: {selected_thumbnails}")
+        print(f"Debug - Number of selected thumbnails: {len(selected_thumbnails)}")
+        
+        if len(selected_thumbnails) == 0:
+            print("Error - No selected thumbnails found")
+            return
+        
+        if len(selected_thumbnails) > 0:
+            slot_index = ord(self.selected_slot) - ord('A')
+            print(f"Debug - Slot index: {slot_index}")
+            
+        if not (0 <= slot_index < len(selected_thumbnails)):
+            print(f"Error - Slot index {slot_index} out of range (0-{len(selected_thumbnails)-1 if selected_thumbnails else -1})")
+            return
+        
+        # Update the HSVR values for the selected thumbnail
+        thumbnail = selected_thumbnails[slot_index]
+        print(f"Debug - Selected thumbnail at slot {slot_index}: {thumbnail}")
+        
+        # Add HSVR data to the thumbnail if it doesn't exist already
+        if "hsvr" not in thumbnail:
+            print("Debug - Adding new hsvr field to thumbnail")
+            thumbnail["hsvr"] = {}
+            
+        # Update the HSVR values
+        thumbnail["hsvr"] = hsvr
+        
+        # Save changes to the database
+        save_database(self.db)
+        
+        print(f"Success - Saved HSVR values for '{thumbnail['name']}' at slot {slot_index}")
 
     def load_button_config_from_file(self, file_path='texmatch.txt'):
         """
@@ -864,8 +1001,8 @@ class TextureTagger:
             if key.lower() == texture_path.lower()
             for thumb in self.db["textures"][key].get("selected_thumbnails", [])
         ]
-        print("PATH: ", texture_path)
-        print(f"Selected thumbnails: {selected_thumbnails}")
+        #print("PATH: ", texture_path)
+        #print(f"Selected thumbnails: {selected_thumbnails}")
 
         # Set a default selected slot if none is set or out of range
         if len(selected_thumbnails) > 0:
@@ -897,7 +1034,6 @@ class TextureTagger:
             if 0 <= slot_index < len(selected_thumbnails):
                 thumbnail_name = selected_thumbnails[slot_index]
                 thumbnail_name = get_key_by_name(self.all_assets, thumbnail_name)
-                print("get key by name line 863: ", thumbnail_name)
                 normalized_name = thumbnail_name.lower().replace(" ", "_")
                 thumbnail_path = f"thumbnails\\{normalized_name}.png"
                 #print(f"Slot: {self.selected_slot}, Thumbnail path: {thumbnail_path}")
@@ -1154,6 +1290,9 @@ class TextureTagger:
                 thumb["name"] if isinstance(thumb, dict) else thumb
                 for thumb in self.db["textures"].get(texture_path.lower(), {}).get("selected_thumbnails", [])
             ]
+        
+        # Change this line:
+        selected_thumbnails_data = self.db["textures"].get(texture_path.lower(), {}).get("selected_thumbnails", [])
 
         # Ensure selected_slot is valid
         if len(selected_thumbnails) > 0:
@@ -1183,7 +1322,6 @@ class TextureTagger:
             #print("SLOT:", slot_index)
             thumbnail_name = selected_thumbnails[slot_index]
             thumbnail_name = get_key_by_name(self.all_assets, thumbnail_name)
-            print("get key by name line 1199: ", thumbnail_name)
             diff_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
             col_overlay_path = os.path.join(OVERLAY_FOLDER, f"{thumbnail_name}_overlay.png")
             print(diff_overlay_path)
@@ -1227,11 +1365,50 @@ class TextureTagger:
         else:
             self.gl_frame.set_mix_ratio(0.0)
 
-        # Limit the width, allow overflow
-        #max_width = 512  # Set your desired maximum width here
-        #self.image_label.config(width=max_width)
+        # Check if selected_thumbnail has HSVR settings in the database
+        if selected_thumbnails:
+            # Map slot (A, B, C, D) to index
+            slot_index = ord(self.selected_slot) - ord('A') if self.selected_slot else 0
+            
+            # Validate slot_index before accessing selected_thumbnails
+            if 0 <= slot_index < len(selected_thumbnails):
+                thumb = selected_thumbnails[slot_index]
+                # If selected_thumbnails is a list of dictionaries as shown in your JSON
+                thumb_data = selected_thumbnails_data[slot_index]
+                print(f"Debug - Full thumbnail data: {thumb_data}")
 
-        
+                # Check if thumb_data is a dictionary with the expected structure
+                if isinstance(thumb_data, dict):
+                    thumb_name = thumb_data.get("name", "Unknown")
+                    print(f"Debug - Thumbnail name: {thumb_name}")
+                    
+                    # Get HSVR settings if available
+                    if "hsvr" in thumb_data:
+                        hsvr_settings = thumb_data["hsvr"]
+
+                        print(f"Debug - HSVR settings found: {hsvr_settings}")
+                        # Apply the saved HSVR values
+                        self.update_hsvr_settings(thumb_data["hsvr"])
+
+                    else:
+                        print("No HSVR settings in thumb_data")
+                        # Reset to default values if no HSVR settings found
+                        # Use default values
+                        default_hsvr = {
+                            "hue": 0,
+                            "saturation": 1.0,
+                            "value": 1.0,
+                            "rotation": 0
+                        }
+                        self.update_hsvr_settings(default_hsvr)
+                                    
+                        print(f"No HSVR settings found for thumbnail at slot {self.selected_slot}, using defaults")
+                else:
+                    # Handle the case where thumb_data is already just a string
+                    thumb_name = thumb_data
+                    print(f"Debug - Thumbnail is just a string: {thumb_name}")
+                    print("No HSVR settings available - thumb is not a dictionary")
+
         # Clear and display tags
         self.tags_listbox.delete(0, END)
         stored_tags = self.db["textures"].get(texture_path.lower(), {}).get("tags", [])

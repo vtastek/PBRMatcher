@@ -30,9 +30,21 @@ class AppOgl(OpenGLFrame):
 
         glEnable(GL_TEXTURE_2D)
         
-        # Set VSync with interval 2
-        self.set_vsync(2)
-
+        # Set up FPS counter
+        self.setup_fps_counter()
+        
+        # Try to set animation rate through pyopengltk
+        # This is a common approach in Tkinter-based OpenGL frames
+        if hasattr(self, 'setAnimationRate'):
+            # If the method exists, use it (30ms interval ≈ 33 FPS)
+            self.setAnimationRate(30)
+            print("Set animation rate to 30ms")
+            
+        # Alternatively, check if we can modify the animationRate attribute directly
+        elif hasattr(self, 'animationRate'):
+            self.animationRate = 30  # ms between frames
+            print("Set animation rate attribute to 30ms")
+        
         # Create and bind VAO and VBO for rendering quad
         self.setup_quad()
 
@@ -47,6 +59,14 @@ class AppOgl(OpenGLFrame):
                 self.after(10, wait_for_gl)  # Retry in 10ms
 
         wait_for_gl()
+    
+    def setup_fps_counter(self):
+        """Initialize FPS counter variables."""
+        import time
+        self.frame_count = 0
+        self.fps = 0
+        self.fps_start_time = time.time()
+        self.last_frame_time = time.time()  # For frame limiting
     
     def init_shaders(self):
         """Initialize vertex and fragment shaders using default built-in shaders."""
@@ -191,36 +211,93 @@ class AppOgl(OpenGLFrame):
         
         # Unbind the VAO
         glBindVertexArray(0)
-    
-    def set_vsync(self, interval=2):
-        """Set VSync with the specified interval using platform-specific methods."""
-        system = platform.system()
+
+    def update_fps_counter(self):
+        """Update FPS counter and log the value."""
+        import time
         
-        try:
-            if system == "Windows":
-                # Windows (WGL_EXT_swap_control)
-                wglSwapIntervalEXT = oglplatform.getExtensionProcedure(b'wglSwapIntervalEXT')
-                if wglSwapIntervalEXT:
-                    wglSwapIntervalEXT(interval)
-                    print(f"VSync interval set to {interval} on Windows")
-                else:
-                    print("wglSwapIntervalEXT not available")
-            else:
-                print(f"VSync setup not implemented for {system}")
-                
-        except Exception as e:
-            print(f"Error setting VSync: {e}")
+        # Increment frame counter
+        self.frame_count += 1
+        
+        # Check if one second has elapsed
+        current_time = time.time()
+        elapsed = current_time - self.fps_start_time
+        
+        if elapsed >= 1.0:
+            # Calculate FPS
+            self.fps = self.frame_count / elapsed
+            
+            # Log FPS
+            print(f"FPS: {self.fps:.1f}")
+            
+            # Reset counters
+            self.frame_count = 0
+            self.fps_start_time = current_time
+
+    def setup_fps_counter(self):
+        """Initialize FPS counter variables with frame limiter."""
+        import time
+        self.frame_count = 0
+        self.fps = 0
+        self.fps_start_time = time.time()
+        self.last_frame_time = time.time()
+        self.frame_scheduled = False  # Flag to prevent double scheduling
+        self.target_fps = 24  # Target frame rate (matches your 1.0/24.0 setting)
 
     def redraw(self):
-        """Render a textured quad using shaders."""
+        """Render a textured quad using shaders with frame limiting."""
+        import time
+        
+        # Prevent multiple scheduling
+        if hasattr(self, 'frame_scheduled') and self.frame_scheduled:
+            return
+            
+        # Calculate frame timing for limiting
+        current_time = time.time()
+        
+        if hasattr(self, 'last_frame_time'):
+            # Calculate target frame duration (in seconds)
+            target_duration = 1.0 / self.target_fps
+            
+            # Calculate how long since the last frame
+            elapsed = current_time - self.last_frame_time
+            
+            # Calculate how long to wait to hit our target
+            wait_time = target_duration - elapsed
+            
+            if wait_time > 0.001:  # Only wait if it's a meaningful amount of time (> 1ms)
+                # Set flag to prevent double scheduling
+                self.frame_scheduled = True
+                
+                # Schedule the actual redraw after waiting
+                ms_wait = int(wait_time * 1000)  # Convert to milliseconds
+                self.after(ms_wait, self._actual_redraw)
+                return
+        
+        # If we don't need to wait, render immediately
+        self._actual_redraw()
+    
+    def _actual_redraw(self):
+        """The actual rendering code, separated to allow for frame timing."""
+        import time
+        
+        # Clear scheduling flag
+        self.frame_scheduled = False
+        
+        # Update last frame time
+        self.last_frame_time = time.time()
+        
+        # Update FPS counter
+        self.update_fps_counter()
+        
         # Clear the screen
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
+        # Rest of your rendering code...
         # Use shader program
         glUseProgram(self.shader_program)
         
         # Update time uniform for animations
-        import time
         if not hasattr(self, "start_time") or self.start_time == 0:
             self.start_time = time.time()
         self.current_time = time.time() - self.start_time
@@ -252,13 +329,9 @@ class AppOgl(OpenGLFrame):
         # Unbind shader program
         glUseProgram(0)
 
+    # This method needs to be modified to avoid direct redraw calls
     def GL_update_texture(self, image, texture_index=0):
-        """Updates one of the OpenGL textures with a new image.
-        
-        Args:
-            image: PIL Image to use as texture
-            texture_index: Which texture to update (0 or 1)
-        """
+        """Updates one of the OpenGL textures with a new image."""
         if texture_index not in [0, 1]:
             raise ValueError("texture_index must be 0 or 1")
             
@@ -277,9 +350,6 @@ class AppOgl(OpenGLFrame):
         glBindTexture(GL_TEXTURE_2D, self.texture_ids[texture_index])
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.width, image.height,
                     0, GL_RGB, GL_UNSIGNED_BYTE, image_data)
-        
-        # Force redraw
-        self.redraw()
 
     def resize_to_image(self):
         """Resize the OpenGL frame to match the image dimensions."""
@@ -397,27 +467,21 @@ class AppOgl(OpenGLFrame):
             raise ValueError("Mix ratio must be between -1.0 and 1.0")
             
         self.mix_ratio = ratio
-        self.redraw()
 
     def set_rotation(self, rotation):
         self.rot = rotation
-        self.redraw()
     
     def set_hue(self, hue):
         self.hue = hue
-        self.redraw()
 
     def set_saturation(self, saturation):
         self.sat = saturation
-        self.redraw()
     
     def set_value(self, value):
         self.val = value
-        self.redraw()
 
     def hsv_click(self, event=None):
         if self.hsvToggle == 1.0:
             self.hsvToggle = 0.0
         else:
             self.hsvToggle = 1.0
-        self.redraw()
