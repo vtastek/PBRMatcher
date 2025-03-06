@@ -345,15 +345,29 @@ class ModernGLTkFrame(tk.Frame):
     
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
-        
+
         # Set default size
         self.width = kwargs.get('width', 640)
         self.height = kwargs.get('height', 480)
         
         # Create canvas for drawing
         self.canvas = tk.Canvas(self, width=self.width, height=self.height, 
-                               highlightthickness=0, bg='black')
+                            highlightthickness=0, bg='#999999')
         self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # The splash screen will completely overlay the window, 
+        # so we don't need to modify widget colors anymore
+        
+        # Flag to track if splash screen is active
+        self.splash_active = True
+        
+        # Force update to ensure the frame is visible
+        self.update()
+        self.master.update()
+
+        # Show splash screen
+        self.splash = self.create_splash_screen(self.master)
+        self.update_splash_progress(0.1, "Creating renderer thread...")
         
         # Create renderer thread and communication queue
         self.render_queue = queue.Queue()
@@ -363,6 +377,7 @@ class ModernGLTkFrame(tk.Frame):
         self.gl_initialized = False
         
         # Start the renderer thread
+        self.update_splash_progress(0.2, "Starting renderer thread...")
         self.start_renderer_thread()
         
         # Performance tracking
@@ -381,8 +396,42 @@ class ModernGLTkFrame(tk.Frame):
         self.val = 1.0
         self.hsvToggle = 0.0
         
-        # Start rendering
-        self.after(100, self.redraw)
+        # Start checking for initialization
+        self.update_splash_progress(0.3, "Waiting for OpenGL initialization...")
+        self.check_initialization()
+
+    def check_initialization(self):
+        """Check if the renderer is initialized and close splash screen when ready."""
+        if self.gl_initialized:
+            # Update splash one last time
+            self.update_splash_progress(1.0, "Ready!")
+            
+            # Close splash after a short delay
+            self.after(1500, self.close_splash)
+        else:
+            # Update progress (simulate progress while waiting)
+            progress = min(0.9, 0.3 + (time.time() - self.fps_start_time) * 0.1)
+            self.update_splash_progress(progress, "OpenGL initialization can take a second...")
+            
+            # Check again in 100ms
+            self.after(100, self.check_initialization)
+
+    def close_splash(self):
+        """Close the splash screen and restore window appearance."""
+        if hasattr(self, 'splash') and self.splash:
+            self.splash.destroy()
+            self.splash = None
+            
+            # Mark splash as inactive
+            self.splash_active = False
+            
+            # Start rendering
+            self.after(100, self.redraw)
+            
+            # Make sure the main window gets focus again
+            self.master.focus_force()
+            self.master.lift()
+            self.master.update()
     
     def start_renderer_thread(self):
         """Start the renderer thread that will handle all OpenGL operations."""
@@ -506,6 +555,11 @@ class ModernGLTkFrame(tk.Frame):
     
     def redraw(self):
         """Request a new frame from the renderer and schedule the next redraw."""
+        # Don't render if splash is still active
+        if self.splash_active:
+            self.after(100, self.redraw)
+            return
+        
         # Don't schedule if we're already waiting for a frame
         if self.frame_scheduled:
             return
@@ -711,3 +765,101 @@ class ModernGLTkFrame(tk.Frame):
         # Wait for the thread to finish (with timeout)
         if hasattr(self, 'renderer_thread') and self.renderer_thread.is_alive():
             self.renderer_thread.join(timeout=1.0)
+
+    def create_splash_screen(self, parent_window):
+        # Get the root window
+        root = self.winfo_toplevel()
+        
+        # Create a splash window
+        splash = tk.Toplevel(root)
+        splash.overrideredirect(True)  # Remove window decorations
+        
+        # Make sure the splash stays on top
+        splash.attributes('-topmost', True)
+        
+        # Get the dimensions of the root window
+        # If root window is not yet properly sized, use its requested dimensions
+        if root.winfo_width() > 1 and root.winfo_height() > 1:
+            root_width = root.winfo_width()
+            root_height = root.winfo_height()
+        else:
+            # Try to get the dimensions from geometry
+            geometry = root.geometry()
+            try:
+                # Parse the geometry string (format: "WIDTHxHEIGHT+X+Y")
+                root_width = int(geometry.split('x')[0])
+                root_height = int(geometry.split('x')[1].split('+')[0])
+            except:
+                # Fallback to some reasonable defaults
+                root_width = 800
+                root_height = 600
+        
+        # Get the position of the root window
+        root_x = root.winfo_rootx()
+        root_y = root.winfo_rooty()
+        
+        # If we couldn't get proper coordinates, center on screen
+        if root_x <= 0 or root_y <= 0:
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+            root_x = (screen_width - root_width) // 2
+            root_y = (screen_height - root_height) // 2
+        
+        # Set the splash to exactly match the root window's size and position
+        splash.geometry(f"{root_width}x{root_height}+{root_x}+{root_y}")
+        
+        # Force splash to appear before continuing
+        splash.update()
+        
+        # Add a canvas with progress information that covers the entire splash window
+        canvas = tk.Canvas(splash, bg='#999999', highlightthickness=0)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Center of the splash screen
+        center_x = root_width // 2
+        center_y = root_height // 2
+        
+        # Add text
+        title = canvas.create_text(center_x, center_y - 40, 
+                                text="Initializing Renderer", 
+                                fill="white", font=("Helvetica", 18))
+        
+        progress_text = canvas.create_text(center_x, center_y + 20, 
+                                        text="Please wait...", 
+                                        fill="white", font=("Helvetica", 12))
+        
+        # Create a progress bar
+        bar_width = min(400, root_width - 100)  # Make sure bar fits in window
+        bar_height = 20
+        bar_x = center_x - (bar_width // 2)
+        bar_y = center_y + 60
+        
+        outline = canvas.create_rectangle(bar_x, bar_y, 
+                                        bar_x + bar_width, bar_y + bar_height, 
+                                        outline="white")
+        
+        progress_bar = canvas.create_rectangle(bar_x, bar_y, 
+                                            bar_x, bar_y + bar_height, 
+                                            fill="#007BFF")
+        
+        # Force another update to make sure everything is visible
+        splash.update()
+        
+        # Function to update progress
+        def update_progress(value, message=None):
+            # Update progress bar (value from 0.0 to 1.0)
+            filled_width = int(bar_width * value)
+            canvas.coords(progress_bar, bar_x, bar_y, 
+                        bar_x + filled_width, bar_y + bar_height)
+            
+            # Update message if provided
+            if message:
+                canvas.itemconfig(progress_text, text=message)
+            
+            # Force update
+            splash.update()
+        
+        # Make the splash window accessible to the app
+        self.update_splash_progress = update_progress
+        
+        return splash
