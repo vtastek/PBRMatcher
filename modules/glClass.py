@@ -1,221 +1,480 @@
-from OpenGL.GL import *
-from OpenGL.GL import shaders
-from pyopengltk import OpenGLFrame
-import platform
+import tkinter as tk
+import numpy as np
+import time
+from PIL import Image, ImageTk
 import ctypes
-from OpenGL import platform as oglplatform
+import platform
+import threading
+import queue
+import moderngl
+import os
 
-class AppOgl(OpenGLFrame):
-    def initgl(self):
-        """Initialize OpenGL settings and create a texture."""
-        glViewport(0, 0, self.width, self.height)
-        glClearColor(0.0, 0.0, 0.0, 1.0)
-
-        # Create and compile shaders
-        self.init_shaders()
-
-        # Generate two empty OpenGL textures
-        self.texture_ids = glGenTextures(2)
-        self.texture_id = self.texture_ids[0]  # For backward compatibility
-        
-        # Setup first texture
-        glBindTexture(GL_TEXTURE_2D, self.texture_ids[0])
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        
-        # Setup second texture
-        glBindTexture(GL_TEXTURE_2D, self.texture_ids[1])
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-
-        glEnable(GL_TEXTURE_2D)
-        
-        # Set up FPS counter
-        self.setup_fps_counter()
-        
-        # Try to set animation rate through pyopengltk
-        # This is a common approach in Tkinter-based OpenGL frames
-        if hasattr(self, 'setAnimationRate'):
-            # If the method exists, use it (30ms interval ≈ 33 FPS)
-            self.setAnimationRate(30)
-            print("Set animation rate to 30ms")
-            
-        # Alternatively, check if we can modify the animationRate attribute directly
-        elif hasattr(self, 'animationRate'):
-            self.animationRate = 30  # ms between frames
-            print("Set animation rate attribute to 30ms")
-        
-        # Create and bind VAO and VBO for rendering quad
-        self.setup_quad()
-
-        # Wait here until OpenGL is fully initialized
-        self.gl_initialized = False
-
-        def wait_for_gl():
-            self.update_idletasks()  # Process pending events
-            if hasattr(self, "texture_id") and hasattr(self, "shader_program"):
-                self.gl_initialized = True
-            else:
-                self.after(10, wait_for_gl)  # Retry in 10ms
-
-        wait_for_gl()
+class OffscreenRenderer:
+    """ModernGL offscreen renderer that doesn't require a window"""
     
-    def setup_fps_counter(self):
-        """Initialize FPS counter variables."""
-        import time
-        self.frame_count = 0
-        self.fps = 0
-        self.fps_start_time = time.time()
-        self.last_frame_time = time.time()  # For frame limiting
-    
-    def init_shaders(self):
-        """Initialize vertex and fragment shaders using default built-in shaders."""
-        # Default vertex shader for a simple textured quad
-        default_vertex_shader = """
-        #version 330 core
-        layout(location = 0) in vec3 position;
-        layout(location = 1) in vec2 texCoord;
+    def __init__(self, width=640, height=480):
+        self.width = width
+        self.height = height
         
-        out vec2 TexCoord;
+        # Create standalone context (doesn't need a window)
+        self.ctx = moderngl.create_context(standalone=True, require=330)
         
-        void main() {
-            gl_Position = vec4(position, 1.0);
-            TexCoord = texCoord;
-        }
-        """
-        
-        # Default fragment shader with two texture inputs
-        default_fragment_shader = """
-        #version 330 core
-        in vec2 TexCoord;
-        
-        uniform sampler2D textureSampler1;  // First texture
-        uniform sampler2D textureSampler2;  // Second texture
-        uniform float time;                 // For animated effects
-        uniform float mixRatio;             // Blend ratio between textures
-        
-        out vec4 FragColor;
-        
-        void main() {
-            // Sample both textures
-            vec4 texColor1 = texture(textureSampler1, TexCoord);
-            vec4 texColor2 = texture(textureSampler2, TexCoord);
-            
-            // Animated mix ratio (can be overridden by uniform)
-            float animatedMix = (sin(time) + 1.0) / 2.0;
-            float currentMix = mixRatio > 0.0 ? mixRatio : animatedMix;
-            
-            // Blend the two textures
-            vec4 blendedColor = mix(texColor1, texColor2, currentMix);
-            
-            // Example effect: Vignette
-            vec2 center = vec2(0.5, 0.5);
-            float dist = distance(TexCoord, center);
-            float vignette = smoothstep(0.5, 0.2, dist);
-            
-            // Apply vignette
-            vec3 finalColor = blendedColor.rgb * vignette;
-            
-            FragColor = vec4(finalColor, blendedColor.a);
-        }
-        """
-        
-        # Try to load shaders from files, fall back to defaults if not found
-        try:
-            vertex_shader_source = self.load_shader_file("default.vert", default_vertex_shader)
-            fragment_shader_source = self.load_shader_file("default.frag", default_fragment_shader)
-            
-            # Compile shaders
-            vertex = shaders.compileShader(vertex_shader_source, GL_VERTEX_SHADER)
-            fragment = shaders.compileShader(fragment_shader_source, GL_FRAGMENT_SHADER)
-            
-            print("Loaded default shaders")
-        except Exception as e:
-            print(f"Error loading default shaders, using built-in defaults: {e}")
-            
-            # Compile default shaders
-            vertex = shaders.compileShader(default_vertex_shader, GL_VERTEX_SHADER)
-            fragment = shaders.compileShader(default_fragment_shader, GL_FRAGMENT_SHADER)
-        
-        # Link shaders into a program
-        self.shader_program = shaders.compileProgram(vertex, fragment)
-        
-        # Get uniform locations
-        self.texture_uniform1 = glGetUniformLocation(self.shader_program, "textureSampler1")
-        self.texture_uniform2 = glGetUniformLocation(self.shader_program, "textureSampler2")
-        self.time_uniform = glGetUniformLocation(self.shader_program, "time")
-        self.mix_ratio_uniform = glGetUniformLocation(self.shader_program, "mixRatio")
-        self.rotation_uniform = glGetUniformLocation(self.shader_program, "rot")
-        self.hue_uniform = glGetUniformLocation(self.shader_program, "hue")
-        self.saturation_uniform = glGetUniformLocation(self.shader_program, "sat")
-        self.value_uniform = glGetUniformLocation(self.shader_program, "val")
-        self.hsvToggle_uniform = glGetUniformLocation(self.shader_program, "hsvToggle")
-        
-        # Initialize mix ratio
-        self.mix_ratio = 0.0  # Negative means use animated mix
+        # Initialize texture and shader state
+        self.textures = [None, None]
+        self.mix_ratio = 0.0
         self.rot = 0.0
         self.hue = 0.0
         self.sat = 1.0
         self.val = 1.0
         self.hsvToggle = 0.0
-
         
-        # Initialize time variable for animation
+        # Initialize shaders, buffers and textures
+        self.init_resources()
+        
+        # Performance tracking
+        self.frame_count = 0
+        self.fps = 0
+        self.fps_start_time = time.time()
+        
+        # Animation timing
         self.start_time = 0
         self.current_time = 0
-    
-    def setup_quad(self):
-        """Create vertex array and buffers for a full-screen quad."""
-        # Vertex data for a quad (x, y, z, tx, ty)
-        quad_vertices = [
-            # Position (x, y, z)    # Texture coords (tx, ty)
-            -1.0, -1.0, 0.0,        0.0, 0.0,  # Bottom-left
-             1.0, -1.0, 0.0,        1.0, 0.0,  # Bottom-right
-             1.0,  1.0, 0.0,        1.0, 1.0,  # Top-right
-            -1.0,  1.0, 0.0,        0.0, 1.0   # Top-left
-        ]
         
-        # Indices for two triangles
-        quad_indices = [
+        # Create framebuffer for offscreen rendering
+        self.fbo = self.ctx.framebuffer(
+            color_attachments=[self.ctx.texture((width, height), 3)]
+        )
+        self.set_shader()
+    
+    def init_resources(self):
+        """Initialize shaders, buffers and textures."""
+        # Shader program
+        self.prog = self.ctx.program(
+            vertex_shader="""
+                #version 330
+                
+                in vec3 position;
+                in vec2 texcoord;
+                
+                out vec2 TexCoord;
+                
+                void main() {
+                    gl_Position = vec4(position, 1.0);
+                    TexCoord = texcoord;
+                }
+            """,
+            fragment_shader="""
+                #version 330
+                
+                in vec2 TexCoord;
+                
+                uniform sampler2D textureSampler1;
+                uniform sampler2D textureSampler2;
+                uniform float time;
+                uniform float mixRatio;
+                uniform float rot;
+                uniform float hue;
+                uniform float sat;
+                uniform float val;
+                uniform float hsvToggle;
+                
+                out vec4 FragColor;
+                
+                // HSV to RGB conversion function
+                vec3 hsv2rgb(vec3 c) {
+                    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+                    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+                    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+                }
+                
+                // RGB to HSV conversion function
+                vec3 rgb2hsv(vec3 c) {
+                    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+                    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+                    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+                    
+                    float d = q.x - min(q.w, q.y);
+                    float e = 1.0e-10;
+                    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+                }
+                
+                void main() {
+                    // Create rotation matrix
+                    float angle = rot;
+                    vec2 center = vec2(0.5, 0.5);
+                    vec2 tc = TexCoord - center;
+                    vec2 rotated = vec2(
+                        tc.x * cos(angle) - tc.y * sin(angle),
+                        tc.x * sin(angle) + tc.y * cos(angle)
+                    );
+                    vec2 rotatedTexCoord = rotated + center;
+                    
+                    // Sample both textures
+                    vec4 texColor1 = texture(textureSampler1, TexCoord);
+                    vec4 texColor2 = texture(textureSampler2, rotatedTexCoord);
+                    
+                    // Animated mix ratio (can be overridden by uniform)
+                    float animatedMix = (sin(time) + 1.0) / 2.0;
+                    float currentMix = mixRatio > 0.0 ? mixRatio : animatedMix;
+                    
+                    // Blend the two textures
+                    vec4 blendedColor = mix(texColor1, texColor2, currentMix);
+                    
+                    // Apply HSV adjustment if enabled
+                    if (hsvToggle > 0.5) {
+                        vec3 hsvColor = rgb2hsv(blendedColor.rgb);
+                        hsvColor.x = mod(hsvColor.x + hue, 1.0);  // Hue adjustment
+                        hsvColor.y *= sat;                         // Saturation adjustment
+                        hsvColor.z *= val;                         // Value adjustment
+                        blendedColor.rgb = hsv2rgb(hsvColor);
+                    }
+                    
+                    // Example effect: Vignette
+                    float dist = distance(TexCoord, center);
+                    float vignette = smoothstep(0.5, 0.2, dist);
+                    
+                    // Apply vignette
+                    vec3 finalColor = blendedColor.rgb * vignette;
+                    
+                    FragColor = vec4(finalColor, blendedColor.a);
+                }
+            """
+        )
+        
+        # Create vertices, normals and texture coordinates for a quad
+        vertices = np.array([
+            # x, y, z, tx, ty
+            -1.0, -1.0, 0.0, 0.0, 0.0,
+             1.0, -1.0, 0.0, 1.0, 0.0,
+             1.0,  1.0, 0.0, 1.0, 1.0,
+            -1.0,  1.0, 0.0, 0.0, 1.0,
+        ], dtype='f4')
+        
+        # Create indices for two triangles
+        indices = np.array([
             0, 1, 2,  # First triangle
             0, 2, 3   # Second triangle
-        ]
+        ], dtype='i4')
         
-        # Convert to numpy arrays of correct type
-        import numpy as np
-        quad_vertices = np.array(quad_vertices, dtype=np.float32)
-        quad_indices = np.array(quad_indices, dtype=np.uint32)
+        # Create vertex buffer
+        self.vbo = self.ctx.buffer(vertices)
         
-        # Create and bind the Vertex Array Object
-        self.vao = glGenVertexArrays(1)
-        glBindVertexArray(self.vao)
+        # Create index buffer
+        self.ibo = self.ctx.buffer(indices)
         
-        # Create and bind the Vertex Buffer Object
-        self.vbo = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-        glBufferData(GL_ARRAY_BUFFER, quad_vertices.nbytes, quad_vertices, GL_STATIC_DRAW)
+        # Create vertex array
+        self.vao = self.ctx.vertex_array(
+            self.prog,
+            [
+                (self.vbo, '3f 2f', 'position', 'texcoord')
+            ],
+            self.ibo
+        )
         
-        # Create and bind the Element Buffer Object
-        self.ebo = glGenBuffers(1)
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_indices.nbytes, quad_indices, GL_STATIC_DRAW)
+        # Create empty textures
+        for i in range(2):
+            self.textures[i] = self.ctx.texture((1, 1), 3)
+            self.textures[i].filter = moderngl.LINEAR, moderngl.LINEAR
+            self.textures[i].write(np.array([0, 0, 0], dtype='u1').tobytes())
         
-        # Position attribute (3 floats)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * np.float32().nbytes, ctypes.c_void_p(0))
-        glEnableVertexAttribArray(0)
+        # Set uniform locations
+        self.prog['textureSampler1'] = 0
+        self.prog['textureSampler2'] = 1
+    
+    def update_texture(self, image, texture_index=0):
+        """Updates one of the OpenGL textures with a new image."""
+        if texture_index not in [0, 1]:
+            raise ValueError("texture_index must be 0 or 1")
+            
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
         
-        # Texture coordinate attribute (2 floats)
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * np.float32().nbytes, 
-                            ctypes.c_void_p(3 * np.float32().nbytes))
-        glEnableVertexAttribArray(1)
+        # Resize for performance if needed
+        max_size = 2048
+        if image.width > max_size or image.height > max_size:
+            # Calculate new size preserving aspect ratio
+            aspect = image.width / image.height
+            if image.width > image.height:
+                new_width = max_size
+                new_height = int(max_size / aspect)
+            else:
+                new_height = max_size
+                new_width = int(max_size * aspect)
+            image = image.resize((new_width, new_height))
         
-        # Unbind the VAO
-        glBindVertexArray(0)
+        # Update the texture
+        if self.textures[texture_index]:
+            # Create new texture with correct size if needed
+            if self.textures[texture_index].size != image.size:
+                self.textures[texture_index].release()
+                self.textures[texture_index] = self.ctx.texture(image.size, 3)
+                self.textures[texture_index].filter = moderngl.LINEAR, moderngl.LINEAR
+            
+            # Write image data to texture
+            self.textures[texture_index].write(image.tobytes())
+    
+    def set_size(self, width, height):
+        """Resize the offscreen framebuffer."""
+        if width <= 0 or height <= 0:
+            return
+            
+        if width == self.width and height == self.height:
+            return
+            
+        self.width = width
+        self.height = height
+        
+        # Recreate framebuffer with new size
+        if hasattr(self, 'fbo'):
+            self.fbo.release()
+        
+        self.fbo = self.ctx.framebuffer(
+            color_attachments=[self.ctx.texture((width, height), 3)]
+        )
+    
+    def set_shader(self, vertex_source_or_file="default.vert", fragment_source_or_file="default.frag", is_file=True):
+        print("set shader")
+        vertex_source_or_file = f"assets/shaders/{vertex_source_or_file}"
+        fragment_source_or_file = f"assets/shaders/{fragment_source_or_file}"
+        """Set custom shader code to be used for rendering.
+        
+        Args:
+            vertex_source_or_file: Vertex shader source code or filename
+            fragment_source_or_file: Fragment shader source code or filename
+            is_file: If True, parameters are treated as filenames to load
+        """
+        try:
+            # Load shader sources
+            vertex_source = vertex_source_or_file
+            fragment_source = fragment_source_or_file
+            
+            if is_file:
+                # Load from files
+                try:
+                    with open(vertex_source_or_file, 'r') as f:
+                        vertex_source = f.read()
+                    with open(fragment_source_or_file, 'r') as f:
+                        fragment_source = f.read()
+                except FileNotFoundError as e:
+                    print(f"Error loading shader files: {e}")
+                    return
+                except Exception as e:
+                    print(f"Error reading shader files: {e}")
+                    return
+            
+            # Release old program if it exists
+            if hasattr(self, 'prog') and self.prog:
+                self.prog.release()
+            
+            # Create new shader program
+            self.prog = self.ctx.program(
+                vertex_shader=vertex_source,
+                fragment_shader=fragment_source
+            )
+            
+            # Re-set uniform locations
+            self.prog['textureSampler1'] = 0
+            self.prog['textureSampler2'] = 1
+            
+        except Exception as e:
+            print(f"Error setting shader: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def render(self):
+        """Render the scene and return the resulting image."""
+        # Update time uniform for animations
+        if not hasattr(self, "start_time") or self.start_time == 0:
+            self.start_time = time.time()
+        self.current_time = time.time() - self.start_time
+        
+        # Set uniforms
+        try:
+            # These are the core uniforms we expect in every shader
+            self.prog['textureSampler1'] = 0
+            self.prog['textureSampler2'] = 1
+            
+            # These are optional and might not be in all shaders
+            try: self.prog['time'].value = self.current_time
+            except: pass
+            
+            try: self.prog['mixRatio'].value = self.mix_ratio
+            except: pass
+            
+            try: self.prog['rot'].value = self.rot
+            except: pass
+            
+            try: self.prog['hue'].value = self.hue
+            except: pass
+            
+            try: self.prog['sat'].value = self.sat
+            except: pass
+            
+            try: self.prog['val'].value = self.val
+            except: pass
+            
+            try: self.prog['hsvToggle'].value = self.hsvToggle
+            except: pass
+        except Exception as e:
+            print(f"Error setting uniforms during render: {e}")
+        
+        # Bind textures
+        self.textures[0].use(location=0)
+        self.textures[1].use(location=1)
+        
+        # Use the framebuffer
+        self.fbo.use()
+        
+        # Clear screen
+        self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+        
+        # Render the quad
+        self.vao.render()
+        
+        # Read the resulting pixels
+        pixels = self.fbo.read(components=3)
+        
+        # Convert to PIL Image
+        return Image.frombytes('RGB', (self.width, self.height), pixels, 'raw', 'RGB', 0, -1)
 
+
+class ModernGLTkFrame(tk.Frame):
+    """A Tkinter frame for displaying ModernGL-rendered content
+    that works on all platforms."""
+    
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        
+        # Set default size
+        self.width = kwargs.get('width', 640)
+        self.height = kwargs.get('height', 480)
+        
+        # Create canvas for drawing
+        self.canvas = tk.Canvas(self, width=self.width, height=self.height, 
+                               highlightthickness=0, bg='black')
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Create renderer thread and communication queue
+        self.render_queue = queue.Queue()
+        self.result_queue = queue.Queue()
+        self.exit_flag = threading.Event()
+        self.renderer = None
+        self.gl_initialized = False
+        
+        # Start the renderer thread
+        self.start_renderer_thread()
+        
+        # Performance tracking
+        self.frame_count = 0
+        self.fps = 0
+        self.fps_start_time = time.time()
+        self.last_frame_time = time.time()
+        self.frame_scheduled = False
+        self.target_fps = 24
+        
+        # Animation controls
+        self.mix_ratio = 0.0
+        self.rot = 0.0
+        self.hue = 0.0
+        self.sat = 1.0
+        self.val = 1.0
+        self.hsvToggle = 0.0
+        
+        # Start rendering
+        self.after(100, self.redraw)
+    
+    def start_renderer_thread(self):
+        """Start the renderer thread that will handle all OpenGL operations."""
+        self.renderer_thread = threading.Thread(target=self.renderer_thread_func)
+        self.renderer_thread.daemon = True
+        self.renderer_thread.start()
+    
+    def renderer_thread_func(self):
+        """Function that runs in the renderer thread.
+        Creates a ModernGL context and processes render requests."""
+        try:
+            # Create the renderer
+            self.renderer = OffscreenRenderer(self.width, self.height)
+            
+            # Mark as initialized
+            self.gl_initialized = True
+            
+            # Process render requests until exit
+            while not self.exit_flag.is_set():
+                try:
+                    # Get a command from the queue with a timeout
+                    cmd, args, kwargs = self.render_queue.get(timeout=0.1)
+                    
+                    # Process the command
+                    if cmd == 'render':
+                        # Render a frame
+                        result = self.renderer.render()
+                        self.result_queue.put(('render_result', result))
+                    elif cmd == 'update_texture':
+                        # Update a texture
+                        self.renderer.update_texture(*args, **kwargs)
+                        self.result_queue.put(('texture_updated', True))
+                    elif cmd == 'resize':
+                        # Resize the framebuffer
+                        self.renderer.set_size(*args)
+                        self.result_queue.put(('resized', True))
+                    elif cmd == 'set_uniform':
+                        # Set a uniform value
+                        name, value = args
+                        setattr(self.renderer, name, value)
+                        self.result_queue.put(('uniform_set', True))
+                    elif cmd == 'set_shader':
+                        # Set custom shader
+                        vertex_source_or_file, fragment_source_or_file, is_file = args
+                        self.set_shader(vertex_source_or_file, fragment_source_or_file, is_file)
+                        self.result_queue.put(('shader_set', True))
+                    elif cmd == 'add_method':
+                        # Add a method to the renderer dynamically
+                        method_name, method_func = args
+                        import types
+                        bound_method = types.MethodType(method_func, self.renderer)
+                        setattr(self.renderer, method_name, bound_method)
+                        self.result_queue.put(('method_added', True))
+                    elif cmd == 'exit':
+                        # Exit the thread
+                        break
+                    
+                    # Mark task as done
+                    self.render_queue.task_done()
+                    
+                except queue.Empty:
+                    # No commands in queue, continue
+                    pass
+                except Exception as e:
+                    # Log the error and continue
+                    print(f"Error in renderer thread: {e}")
+                    import traceback
+                    traceback.print_exc()
+        
+        except Exception as e:
+            # Log initialization error
+            print(f"Error initializing renderer: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Clean up
+        if hasattr(self, 'renderer') and self.renderer:
+            # Clean up OpenGL resources
+            try:
+                for texture in self.renderer.textures:
+                    if texture:
+                        texture.release()
+                self.renderer.vao.release()
+                self.renderer.vbo.release()
+                self.renderer.ibo.release()
+                self.renderer.prog.release()
+                self.renderer.fbo.release()
+            except:
+                pass
+    
     def update_fps_counter(self):
         """Update FPS counter and log the value."""
-        import time
-        
         # Increment frame counter
         self.frame_count += 1
         
@@ -233,54 +492,50 @@ class AppOgl(OpenGLFrame):
             # Reset counters
             self.frame_count = 0
             self.fps_start_time = current_time
-
-    def setup_fps_counter(self):
-        """Initialize FPS counter variables with frame limiter."""
-        import time
-        self.frame_count = 0
-        self.fps = 0
-        self.fps_start_time = time.time()
-        self.last_frame_time = time.time()
-        self.frame_scheduled = False  # Flag to prevent double scheduling
-        self.target_fps = 24  # Target frame rate (matches your 1.0/24.0 setting)
-
-    def redraw(self):
-        """Render a textured quad using shaders with frame limiting."""
-        import time
+    
+    def set_initial_size(self, width, height):
+        """Set the initial size of the frame before the first image is loaded."""
+        self.width = width
+        self.height = height
+        self.canvas.config(width=width, height=height)
+        self.update_idletasks()
         
-        # Prevent multiple scheduling
-        if hasattr(self, 'frame_scheduled') and self.frame_scheduled:
+        # Update renderer size
+        if self.gl_initialized:
+            self.render_queue.put(('resize', (width, height), {}))
+    
+    def redraw(self):
+        """Request a new frame from the renderer and schedule the next redraw."""
+        # Don't schedule if we're already waiting for a frame
+        if self.frame_scheduled:
             return
             
         # Calculate frame timing for limiting
         current_time = time.time()
         
-        if hasattr(self, 'last_frame_time'):
-            # Calculate target frame duration (in seconds)
-            target_duration = 1.0 / self.target_fps
+        # Calculate target frame duration (in seconds)
+        target_duration = 1.0 / self.target_fps
+        
+        # Calculate how long since the last frame
+        elapsed = current_time - self.last_frame_time
+        
+        # Calculate how long to wait to hit our target
+        wait_time = target_duration - elapsed
+        
+        if wait_time > 0.001:  # Only wait if it's a meaningful amount of time (> 1ms)
+            # Set flag to prevent double scheduling
+            self.frame_scheduled = True
             
-            # Calculate how long since the last frame
-            elapsed = current_time - self.last_frame_time
-            
-            # Calculate how long to wait to hit our target
-            wait_time = target_duration - elapsed
-            
-            if wait_time > 0.001:  # Only wait if it's a meaningful amount of time (> 1ms)
-                # Set flag to prevent double scheduling
-                self.frame_scheduled = True
-                
-                # Schedule the actual redraw after waiting
-                ms_wait = int(wait_time * 1000)  # Convert to milliseconds
-                self.after(ms_wait, self._actual_redraw)
-                return
+            # Schedule the actual redraw after waiting
+            ms_wait = int(wait_time * 1000)  # Convert to milliseconds
+            self.after(ms_wait, self._actual_redraw)
+            return
         
         # If we don't need to wait, render immediately
         self._actual_redraw()
     
     def _actual_redraw(self):
         """The actual rendering code, separated to allow for frame timing."""
-        import time
-        
         # Clear scheduling flag
         self.frame_scheduled = False
         
@@ -290,125 +545,131 @@ class AppOgl(OpenGLFrame):
         # Update FPS counter
         self.update_fps_counter()
         
-        # Clear the screen
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        # Check if we have a renderer
+        if not self.gl_initialized:
+            # Try again later
+            self.after(100, self.redraw)
+            return
         
-        # Rest of your rendering code...
-        # Use shader program
-        glUseProgram(self.shader_program)
+        # Forward uniforms to renderer
+        self.render_queue.put(('set_uniform', ('mix_ratio', self.mix_ratio), {}))
+        self.render_queue.put(('set_uniform', ('rot', self.rot), {}))
+        self.render_queue.put(('set_uniform', ('hue', self.hue), {}))
+        self.render_queue.put(('set_uniform', ('sat', self.sat), {}))
+        self.render_queue.put(('set_uniform', ('val', self.val), {}))
+        self.render_queue.put(('set_uniform', ('hsvToggle', self.hsvToggle), {}))
         
-        # Update time uniform for animations
-        if not hasattr(self, "start_time") or self.start_time == 0:
-            self.start_time = time.time()
-        self.current_time = time.time() - self.start_time
-        glUniform1f(self.time_uniform, self.current_time)
+        # Request a new frame
+        self.render_queue.put(('render', (), {}))
         
-        # Bind the first texture to texture unit 0
-        glActiveTexture(GL_TEXTURE0)
-        glBindTexture(GL_TEXTURE_2D, self.texture_ids[0])
-        glUniform1i(self.texture_uniform1, 0)
+        # Process messages from the renderer
+        self.process_renderer_messages()
         
-        # Bind the second texture to texture unit 1
-        glActiveTexture(GL_TEXTURE1)
-        glBindTexture(GL_TEXTURE_2D, self.texture_ids[1])
-        glUniform1i(self.texture_uniform2, 1)
+        # Schedule next frame
+        self.after(1, self.redraw)
+    
+    def process_renderer_messages(self):
+        """Process any messages from the renderer thread."""
+        try:
+            # Check for render results
+            while not self.result_queue.empty():
+                msg_type, data = self.result_queue.get_nowait()
+                
+                if msg_type == 'render_result':
+                    # Display the rendered image
+                    self.display_image(data)
+                
+                # Mark as processed
+                self.result_queue.task_done()
+        except:
+            pass
+    
+    def display_image(self, image):
+        """Display an image on the canvas."""
+        if not image:
+            return
+            
+        # Convert to PhotoImage
+        photo = ImageTk.PhotoImage(image)
         
-        # Set mix ratio uniform
-        glUniform1f(self.mix_ratio_uniform, self.mix_ratio)
-        glUniform1f(self.rotation_uniform, self.rot)
-        glUniform1f(self.hue_uniform, self.hue)
-        glUniform1f(self.saturation_uniform, self.sat)
-        glUniform1f(self.value_uniform, self.val)
-        glUniform1f(self.hsvToggle_uniform, self.hsvToggle)
+        # Clear canvas
+        self.canvas.delete("all")
         
-        # Bind vertex array and draw
-        glBindVertexArray(self.vao)
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, None)
-        glBindVertexArray(0)
+        # Create new image on canvas
+        self.canvas.create_image(0, 0, image=photo, anchor=tk.NW)
         
-        # Unbind shader program
-        glUseProgram(0)
-
-    # This method needs to be modified to avoid direct redraw calls
+        # Keep a reference to prevent garbage collection
+        self.canvas.photo = photo
+    
     def GL_update_texture(self, image, texture_index=0):
-        """Updates one of the OpenGL textures with a new image."""
+        """Updates one of the textures with a new image."""
+        if not self.gl_initialized:
+            # Try again later
+            self.after(100, lambda: self.GL_update_texture(image, texture_index))
+            return
+            
         if texture_index not in [0, 1]:
             raise ValueError("texture_index must be 0 or 1")
             
-        image = image.convert("RGB")
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
         
-        # Set image dimensions from the first texture
+        # Set image dimensions
         if texture_index == 0:
             self.image_width, self.image_height = image.size
-            # Resize the frame to match the image dimensions
             self.resize_to_image()
         
-        # Convert image to raw bytes
-        image_data = image.tobytes("raw", "RGB", 0, -1)
-        
-        # Bind and update the specified OpenGL texture
-        glBindTexture(GL_TEXTURE_2D, self.texture_ids[texture_index])
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.width, image.height,
-                    0, GL_RGB, GL_UNSIGNED_BYTE, image_data)
-
-    def resize_to_image(self):
-        """Resize the OpenGL frame to match the image dimensions."""
-        if hasattr(self, "image_width") and hasattr(self, "image_height"):
-            # Update the frame's size
-            self.config(width=self.image_width, height=self.image_height)
-            
-            # Update OpenGL viewport to match new dimensions
-            glViewport(0, 0, self.image_width, self.image_height)
-            
-            # Force the parent container to adapt to the new size if needed
-            self.update_idletasks()
-
-    def set_initial_size(self, width, height):
-        """Set the initial size of the OpenGL frame before the first image is loaded.
-        This helps prevent flickering by pre-allocating space."""
-        self.image_width = width
-        self.image_height = height
-        self.config(width=width, height=height)
-
-        # Wait here until OpenGL is fully initialized
-        self.gl_initialized = False
-
-        def wait_for_gl():
-            self.update_idletasks()  # Process pending events
-            if hasattr(self, "texture_id") and hasattr(self, "shader_program"):
-                self.gl_initialized = True
-            else:
-                self.after(10, wait_for_gl)  # Retry in 10ms
-
-        wait_for_gl()
-
-        # Update OpenGL viewport to match dimensions
-        glViewport(0, 0, width, height)
-        
-    def load_shader_file(self, filename, default_content=None):
-        """Load shader source from a file.
-        
-        Args:
-            filename: Path to shader file
-            default_content: Default content to use if file can't be loaded
-            
-        Returns:
-            String containing shader source code
-        """
-
-        filename = f"assets/shaders/{filename}"
-        print(f"Loading shader file: {filename}")
-        try:
-            with open(filename, 'r') as f:
-                return f.read()
-        except (IOError, FileNotFoundError) as e:
-            if default_content is not None:
-                print(f"Could not load shader file '{filename}', using default: {e}")
-                return default_content
-            else:
-                raise RuntimeError(f"Could not load shader file '{filename}'") from e
+        # Forward to renderer thread
+        self.render_queue.put(('update_texture', (image, texture_index), {}))
     
-    def set_shader(self, vertex_source_or_file, fragment_source_or_file, is_file=False):
+    def resize_to_image(self):
+        """Resize the frame to match the image dimensions."""
+        if hasattr(self, "image_width") and hasattr(self, "image_height"):
+            # Update size
+            self.width = self.image_width
+            self.height = self.image_height
+            
+            # Update canvas size
+            self.canvas.config(width=self.width, height=self.height)
+            
+            # Update renderer size
+            if self.gl_initialized:
+                self.render_queue.put(('resize', (self.width, self.height), {}))
+            
+            # Force the parent container to adapt to the new size
+            self.update_idletasks()
+    
+    def set_mix_ratio(self, ratio):
+        """Set the mix ratio between the two textures."""
+        if ratio < -1.0 or ratio > 1.0:
+            raise ValueError("Mix ratio must be between -1.0 and 1.0")
+        self.mix_ratio = ratio
+    
+    def set_rotation(self, rotation):
+        """Set the rotation value for the second texture."""
+        self.rot = rotation
+    
+    def set_hue(self, hue):
+        """Set the hue adjustment value."""
+        self.hue = hue
+    
+    def set_saturation(self, saturation):
+        """Set the saturation adjustment value."""
+        self.sat = saturation
+    
+    def set_value(self, value):
+        """Set the value/brightness adjustment value."""
+        self.val = value
+    
+    def hsv_click(self, event=None):
+        """Toggle HSV adjustment on/off."""
+        if self.hsvToggle == 1.0:
+            self.hsvToggle = 0.0
+        else:
+            self.hsvToggle = 1.0
+    
+    def set_shader(self, vertex_source_or_file="default.vert", fragment_source_or_file="default.frag", is_file=True):
         """Set custom shader code to be used for rendering.
         
         Args:
@@ -416,72 +677,37 @@ class AppOgl(OpenGLFrame):
             fragment_source_or_file: Fragment shader source code or filename
             is_file: If True, parameters are treated as filenames to load
         """
-        # Delete old shader program if it exists
-        if hasattr(self, "shader_program"):
-            glDeleteProgram(self.shader_program)
+        # Store the last shader request to avoid duplicate scheduling
+        vertex_source_or_file = f"assets/shaders/{vertex_source_or_file}"
+        fragment_source_or_file = f"assets/shaders/{fragment_source_or_file}"
+        self._last_shader_request = (vertex_source_or_file, fragment_source_or_file, is_file)
         
-        try:
-            # Load shader source from files if requested
-            if is_file:
-                vertex_shader_source = self.load_shader_file(vertex_source_or_file)
-                fragment_shader_source = self.load_shader_file(fragment_source_or_file)
-                print(f"Loaded shaders from files: {vertex_source_or_file}, {fragment_source_or_file}")
-            else:
-                vertex_shader_source = vertex_source_or_file
-                fragment_shader_source = fragment_source_or_file
+        if not self.gl_initialized:
+            print("Cannot set shader - OpenGL not initialized")
             
-            # Compile new shaders
-            vertex = shaders.compileShader(vertex_shader_source, GL_VERTEX_SHADER)
-            fragment = shaders.compileShader(fragment_shader_source, GL_FRAGMENT_SHADER)
-            
-            # Link shaders into a program
-            self.shader_program = shaders.compileProgram(vertex, fragment)
-            
-            # Get uniform locations
-            self.texture_uniform1 = glGetUniformLocation(self.shader_program, "textureSampler1")
-            self.texture_uniform2 = glGetUniformLocation(self.shader_program, "textureSampler2")
-            self.time_uniform = glGetUniformLocation(self.shader_program, "time")
-            self.mix_ratio_uniform = glGetUniformLocation(self.shader_program, "mixRatio")
-            
-            # Reset animation timer
-            self.start_time = 0
-            
-            # Force redraw
-            self.redraw()
-            
-        except Exception as e:
-            # Log error details for debugging
-            print(f"Error setting shader: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+            # Clear any existing scheduled calls with the same id
+            if hasattr(self, '_shader_after_id') and self._shader_after_id:
+                self.after_cancel(self._shader_after_id)
+                
+            # Schedule a new attempt and store the id
+            self._shader_after_id = self.after(100, lambda: self.set_shader(
+                *self._last_shader_request))
+            return
         
-    def set_mix_ratio(self, ratio):
-        """Set the mix ratio between the two textures.
-        
-        Args:
-            ratio: Float between 0.0 and 1.0, or -1.0 for animated mixing
-                  0.0 = 100% texture1, 1.0 = 100% texture2
-        """
-        if ratio < -1.0 or ratio > 1.0:
-            raise ValueError("Mix ratio must be between -1.0 and 1.0")
-            
-        self.mix_ratio = ratio
-
-    def set_rotation(self, rotation):
-        self.rot = rotation
+        # Create command to set shader
+        self.render_queue.put(('set_shader', 
+                            (vertex_source_or_file, fragment_source_or_file, is_file), {}))
     
-    def set_hue(self, hue):
-        self.hue = hue
-
-    def set_saturation(self, saturation):
-        self.sat = saturation
+    def set_target_fps(self, fps):
+        """Set the target frame rate."""
+        self.target_fps = max(1, min(60, fps))
     
-    def set_value(self, value):
-        self.val = value
-
-    def hsv_click(self, event=None):
-        if self.hsvToggle == 1.0:
-            self.hsvToggle = 0.0
-        else:
-            self.hsvToggle = 1.0
+    def cleanup(self):
+        """Clean up resources before destruction."""
+        # Signal the renderer thread to exit
+        self.exit_flag.set()
+        self.render_queue.put(('exit', (), {}))
+        
+        # Wait for the thread to finish (with timeout)
+        if hasattr(self, 'renderer_thread') and self.renderer_thread.is_alive():
+            self.renderer_thread.join(timeout=1.0)

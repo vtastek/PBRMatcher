@@ -18,7 +18,7 @@ from modules.api_operations import fetch_api_data
 from modules.thumbnail_operations import fetch_thumbnail
 from modules.utility_functions import translate_texture_path, center_window, get_key_by_name
 from modules.database_operations import save_database
-from modules.glClass import AppOgl
+from modules.glClass import ModernGLTkFrame
 from modules.texture_operations import TextureOperations
 from modules.download_manager import DownloadManager
 
@@ -201,13 +201,13 @@ class TextureTagger:
         self.gl_container.pack(fill=tk.BOTH, expand=True)
 
         # Instantiate the OpenGL frame inside the container.
-        self.gl_frame = AppOgl(self.gl_container, width=2, height=2)
+        self.gl_frame = ModernGLTkFrame(self.gl_container, width=2, height=2)
         self.gl_frame.pack(fill=tk.BOTH, expand=True)
         self.label_frame.bind("<Button-1>", self.gl_frame.hsv_click)
 
         # Enable animation
-        self.gl_frame.animate = 1
-        self.gl_frame.update_idletasks()
+        #self.gl_frame.animate = 1
+        #self.gl_frame.update_idletasks()
 
         self.previous_button = Button(self.gridA1, font=button_font, width=int(7 * scale_factor), text="Previous", command=self.previous_texture)
         self.previous_button.pack(padx=10, pady=5, expand=True)
@@ -1350,8 +1350,19 @@ class TextureTagger:
         self.image_label.pack()
 
         self.gl_frame.set_initial_size(self.d_width, self.d_height)
-        self.gl_frame.GL_update_texture(display_image)
+
+
+        def check_init():
+            if self.gl_frame.gl_initialized:
+                print("GL init completed")
+            else:
+                self.root.after(100, check_init)
+            
+        check_init()
+
         
+        self.gl_frame.GL_update_texture(display_image)
+
         if overlay_path:
             overlay_image = self.texture_operations.load_image(overlay_path)
             if overlay_image is not None:

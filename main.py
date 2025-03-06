@@ -14,4 +14,8 @@ if __name__ == "__main__":
     db = load_database()
     root = Tk()
     app = TextureTagger(root, db)
+    
     root.mainloop()
+
+    # Make sure to clean up when the window is closed
+    app.gl_frame.cleanup()
